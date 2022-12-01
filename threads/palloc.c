@@ -250,6 +250,8 @@ palloc_init (void) {
 	printf ("\text_mem: 0x%llx ~ 0x%llx (Usable: %'llu kB)\n",
 		  ext_mem.start, ext_mem.end, ext_mem.size / 1024);
 	populate_pools (&base_mem, &ext_mem);
+	printf("size !!!! %d\n",ext_mem.size);
+	printf("%d\n",ext_mem.end);
 	return ext_mem.end;
 }
 

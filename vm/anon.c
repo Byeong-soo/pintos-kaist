@@ -3,13 +3,13 @@
 #include "vm/vm.h"
 #include "devices/disk.h"
 
-/* DO NOT MODIFY BELOW LINE */
+//! DO NOT MODIFY BELOW LINE
 static struct disk *swap_disk;
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
 
-/* DO NOT MODIFY this struct */
+//! DO NOT MODIFY this struct
 static const struct page_operations anon_ops = {
 	.swap_in = anon_swap_in,
 	.swap_out = anon_swap_out,
@@ -20,7 +20,7 @@ static const struct page_operations anon_ops = {
 /* Initialize the data for anonymous pages */
 void
 vm_anon_init (void) {
-	/* TODO: Set up the swap_disk. */
+	// TODO: Set up the swap_disk.
 	swap_disk = NULL;
 }
 

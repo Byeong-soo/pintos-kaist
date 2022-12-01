@@ -81,10 +81,23 @@ struct page_operations {
 #define destroy(page) \
 	if ((page)->operations->destroy) (page)->operations->destroy (page)
 
-/* Representation of current process's memory space.
- * We don't want to force you to obey any specific design for this struct.
- * All designs up to you for this. */
+
+//* Representation of current process's memory space.
+//* We don't want to force you to obey any specific design for this struct.
+//? All designs up to you for this.
+//TODO
 struct supplemental_page_table {
+	//페이지 테이블에 접근 불가능 페이지 나타내는 변수.
+	//추가된 페이지를 읽거나 쓸 떄 운영체제로 트랩이 발생하는데 이떄 demand zeroing 해줘야하는 페이지임을 알게해줘야함.
+	// 트랩이 발생한 시점에 물리페이지를 0으로 채우고 프로세스의 주소 공간으로 매핑하는 등의 필요작업을 하게한다.
+	// 해당 페이지를 전혀 접근하지 않는다면 이 모든 작업을 피할 수 있으며, 이것이 장점
+	bool access;
+	struct list page_list;
+};
+
+struct page_table_node {
+	struct page *page;
+	struct list_elem elem;
 };
 
 #include "threads/thread.h"

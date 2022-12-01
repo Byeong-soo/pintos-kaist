@@ -409,7 +409,6 @@ void syscall_abnormal_exit(short exit_code)
 // f의 값 출력 type 0 : d 출력, 1 : s 출력, 2 : 둘다 출력
 void print_values(struct intr_frame *f, int type)
 {
-
 	printf("call_num   %d\n", f->R.rax);
 	printf("rdi        %d\n", f->R.rdi);
 	if (type == 0)
