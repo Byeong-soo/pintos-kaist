@@ -89,6 +89,7 @@ main (void) {
 
 	/* Initialize memory system. */
 	mem_end = palloc_init ();
+	printf("mem_end!!!!! =%d\n",mem_end);
 	malloc_init ();
 	paging_init (mem_end);
 

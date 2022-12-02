@@ -1,18 +1,19 @@
 #ifndef THREADS_THREAD_H
 #define THREADS_THREAD_H
 
+#define USERPROG
+#define VM
+
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
-// lock 구조체를 모르니까 선언해줘야 합니다 -bs-
 #include "include/threads/synch.h"
 #include "filesys/file.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
 
-#define USERPROG
 
 #define EXIT_CODE_DEFAULT -2
 #define EXIT_CODE_ERROR -1

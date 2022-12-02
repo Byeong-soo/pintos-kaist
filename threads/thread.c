@@ -140,7 +140,7 @@ void thread_init(void)
 /* Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void thread_start(void)
-{
+{	
 	/* Create the idle thread. */
 	struct semaphore idle_started;
 	sema_init(&idle_started, 0);
@@ -231,12 +231,9 @@ tid_t thread_create(const char *name, int priority,
 	tep->exit_code = EXIT_CODE_DEFAULT;
 	list_push_back(children_list,&tep->elem);
 
-
-
 	/* Add to run queue. */
 	thread_unblock(t);
 	test_max_priority();
-	
 
 	return tid;
 }
@@ -497,9 +494,7 @@ init_thread(struct thread *t, const char *name, int priority)
 
 	sema_init(&t->wait_sema,0);
 	t->make_child_success = true;
-	t->exit_code = EXIT_CODE_DEFAULT;
-	
-	
+	t->exit_code = EXIT_CODE_DEFAULT;	
 
 }
 

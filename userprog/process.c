@@ -89,9 +89,7 @@ initd(void *f_name)
 #ifdef VM
 	supplemental_page_table_init(&thread_current()->spt);
 #endif
-
 	process_init();
-
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED();
@@ -325,15 +323,20 @@ int process_exec(void *f_name)
 		return TID_ERROR;
 	strlcpy(fn_copy, f_name, PGSIZE); // filename을 fn_copy로 복사
 	char *file_name = strtok_r(fn_copy, " ", &not_used);
-
+	
 	/* 실행 파일 로드 */
+	// printf("!!!!!!!!!!!!!!before load\n");
 	success = load(file_name, &_if);
-	if (!success)
-		return -1;
 
+	if (!success){
+	// printf("!!!!!!!!!!!!!!after load fail\n");
+		return -1;
+	}
 	passing_argument(f_name, &_if);
+	// printf("!!!!!!!!!!!!!!after passing\n");
 
 	/* Start switched process. */
+	// printf("!!!!!!!!!!!!!!before do_iret\n");
 	do_iret(&_if);
 	NOT_REACHED(); // 실행되면 panic이 발생하는 코드. 코드에 도달하게 하지 않도록 추가해 놓은 코드임
 }
@@ -440,18 +443,22 @@ load(const char *file_name, struct intr_frame *if_)
 	int i;
 
 	/* Allocate and activate page directory. */
+	// printf("!!!!!!!!!!!!!!before pml4_create\n");
 	t->pml4 = pml4_create();
-	if (t->pml4 == NULL)
+	if (t->pml4 == NULL){
+		// printf("!!!!!!!!!!!!!!pml4 null\n");
 		goto done;
+	}
+	
 	process_activate(thread_current());
-
+	// printf("!!!!!!!!!!!!!!after process_activate\n");
 	/* Open executable file. */
 	file_lock_acquire();
 	file = filesys_open(file_name);
 	file_lock_release();
+	// printf("!!!!!!!!!!!!!!after open file\n");
 	if (file == NULL)
 	{
-
 		printf("load: %s: open failed\n", file_name);
 		goto done;
 	}
@@ -466,6 +473,7 @@ load(const char *file_name, struct intr_frame *if_)
 		goto done;
 	}
 	file_lock_release();
+	// printf("@@@@@@@@@after file read\n");
 
 	/* Read program headers. */
 	file_ofs = ehdr.e_phoff;
@@ -473,14 +481,17 @@ load(const char *file_name, struct intr_frame *if_)
 	{
 		struct Phdr phdr;
 
-		if (file_ofs < 0 || file_ofs > file_length(file))
+		if (file_ofs < 0 || file_ofs > file_length(file)){
+			// printf("filelength =%d\n", file_length(file));
 			goto done;
+		}
 		file_seek(file, file_ofs);
 
 		file_lock_acquire();
 		if (file_read(file, &phdr, sizeof phdr) != sizeof phdr)
 		{
 			file_lock_release();
+			// printf("!!!!!!!!!!!!!!fail file read\n");
 			goto done;
 		}
 		file_lock_release();
@@ -497,6 +508,7 @@ load(const char *file_name, struct intr_frame *if_)
 		case PT_DYNAMIC:
 		case PT_INTERP:
 		case PT_SHLIB:
+			// printf("here...?\n");
 			goto done;
 		case PT_LOAD:
 			if (validate_segment(&phdr, file))
@@ -521,19 +533,25 @@ load(const char *file_name, struct intr_frame *if_)
 					zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
 				}
 				if (!load_segment(file, file_page, (void *)mem_page,
-								  read_bytes, zero_bytes, writable))
+								  read_bytes, zero_bytes, writable)){
+									// printf("here...?\n");
 					goto done;
+								  }
 			}
-			else
+			else{
+									// printf("hi...22222222?\n");
 				goto done;
+			}
 			break;
 		}
 	}
 
 	/* Set up stack. */
-	if (!setup_stack(if_))
+	if (!setup_stack(if_)){
+		// printf("!!!!!!!!!!!!!!fail setup stack\n");
 		goto done;
-
+	}
+	// printf("!!!!!!!!!!!!!!after setup stack\n");
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
@@ -623,7 +641,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
 	file_seek(file, ofs);
 	while (read_bytes > 0 || zero_bytes > 0)
-	{
+	{	
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
@@ -704,9 +722,27 @@ install_page(void *upage, void *kpage, bool writable)
 static bool
 lazy_load_segment(struct page *page, void *aux)
 {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+	// TODO: Load the segment from the file
+	// TODO: This called when the first page fault occurs on address VA.
+	// TODO: VA is available when calling this function.
+
+	size_t *buf = (size_t*)aux;
+	size_t page_read_bytes = *(buf);
+	size_t page_zero_bytes = *(buf+1);
+	size_t file = *(buf+2);
+
+	// printf("first = %d\n",page_read_bytes);
+	// printf("second = %d\n",page_zero_bytes);
+
+	if (file_read(file, page, page_read_bytes) != (int)page_read_bytes)
+	{
+		palloc_free_page(page);
+		return false;
+	}
+
+	memset(page + page_read_bytes, 0, page_zero_bytes);
+
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -731,25 +767,43 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT(pg_ofs(upage) == 0);
 	ASSERT(ofs % PGSIZE == 0);
 
+	size_t bytes[3];
+
+	file_seek(file, ofs);
 	while (read_bytes > 0 || zero_bytes > 0)
 	{
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
+		
+		// printf("read_byte = %d\n",read_bytes);
+		// printf("zero_byte = %d\n",zero_bytes);
+
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		// printf("page_read_bytes = %d\n",page_read_bytes);
+		// printf("page_zero_bytes = %d\n",page_zero_bytes);
+
+		bytes[0] = page_read_bytes;
+		bytes[1] = page_zero_bytes;
+		bytes[2] = file;
+
+		// TODO: Set up aux to pass information to the lazy_load_segment.
+
+		void *aux = bytes;
 		if (!vm_alloc_page_with_initializer(VM_ANON, upage,
 											writable, lazy_load_segment, aux))
-			return false;
+											{
+												return false;
+											}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
 	}
+	// printf("end load_segment\n");
 	return true;
 }
 
@@ -760,10 +814,19 @@ setup_stack(struct intr_frame *if_)
 	bool success = false;
 	void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
+	//TODO: Map the stack on stack_bottom and claim the page immediately.
+	// TODO: If success, set the rsp accordingly.
+	// TODO: You should mark the page is stack.
 	/* TODO: Your code goes here */
+
+	// struct thread *t = thread_current();
+	// bool writable = t->spt.page->anon.writable;
+	// uint8_t *kpage,*upage;
+	// kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	// upage = ((uint8_t *)USER_STACK) - PGSIZE;
+
+	// success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, writable));
+	// if_->rsp = USER_STACK;
 
 	return success;
 }

@@ -5,6 +5,7 @@ struct page;
 enum vm_type;
 
 struct anon_page {
+    bool writable;
 };
 
 void vm_anon_init (void);
