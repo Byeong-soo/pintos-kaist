@@ -525,21 +525,22 @@ load(const char *file_name, struct intr_frame *if_)
 					read_bytes = page_offset + phdr.p_filesz;
 					zero_bytes = (ROUND_UP(page_offset + phdr.p_memsz, PGSIZE) - read_bytes);
 				}
-				else
+				else 
 				{
 					/* Entirely zero.
 					 * Don't read anything from disk. */
 					read_bytes = 0;
 					zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
 				}
+				printf("!!!!!!!!mem_page = %d\n",mem_page);
 				if (!load_segment(file, file_page, (void *)mem_page,
 								  read_bytes, zero_bytes, writable)){
-									// printf("here...?\n");
+									printf("here...?\n");
 					goto done;
 								  }
 			}
 			else{
-									// printf("hi...22222222?\n");
+									printf("hi...22222222?\n");
 				goto done;
 			}
 			break;
@@ -548,10 +549,10 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* Set up stack. */
 	if (!setup_stack(if_)){
-		// printf("!!!!!!!!!!!!!!fail setup stack\n");
+		printf("!!!!!!!!!!!!!!fail setup stack\n");
 		goto done;
 	}
-	// printf("!!!!!!!!!!!!!!after setup stack\n");
+	printf("!!!!!!!!!!!!!!after setup stack\n");
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
@@ -792,6 +793,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		// TODO: Set up aux to pass information to the lazy_load_segment.
 
 		void *aux = bytes;
+		// printf("vm_allock_page before %d\n",upage);
 		if (!vm_alloc_page_with_initializer(VM_ANON, upage,
 											writable, lazy_load_segment, aux))
 											{
@@ -803,7 +805,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
 	}
-	// printf("end load_segment\n");
+	printf("end load_segment\n");
 	return true;
 }
 
@@ -819,14 +821,14 @@ setup_stack(struct intr_frame *if_)
 	// TODO: You should mark the page is stack.
 	/* TODO: Your code goes here */
 
-	// struct thread *t = thread_current();
-	// bool writable = t->spt.page->anon.writable;
-	// uint8_t *kpage,*upage;
-	// kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-	// upage = ((uint8_t *)USER_STACK) - PGSIZE;
+	struct thread *t = thread_current();
 
-	// success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, writable));
-	// if_->rsp = USER_STACK;
+	uint8_t *kpage,*upage;
+	kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	upage = ((uint8_t *)USER_STACK) - PGSIZE;
+
+	success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, true));
+	if_->rsp = USER_STACK;
 
 	return success;
 }

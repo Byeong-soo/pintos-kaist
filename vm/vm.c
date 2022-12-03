@@ -4,7 +4,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
-
+#include "threads/mmu.h"
 #include <stdio.h>
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -51,48 +51,43 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-	printf("before spt_find_page\n");
+
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-
-		printf("after spt_find_page\n");
+		// printf("upage2 = %x\n",upage);
+		// printf("after spt_find_page\n");
 		// TODO: Create the page, fetch the initialier according to the VM type,
 		// TODO: and then create "uninit" page struct by calling uninit_new. You
 		// TODO: should modify the field after calling the uninit_new.
 		// TODO: Insert the page into the spt.
 
 		//! free!!
-		struct page_table_node * new_page = (struct page_table_node *)malloc(sizeof(struct page_table_node));
-		uint8_t *kpage;
-		void * va = upage;
-
-		kpage = palloc_get_page(PAL_USER);
-		struct page * page = kpage;
-		if (kpage == NULL)
-			return false;
-
-		uninit_new(page,va,init,type,aux,page->operations->swap_in);
-		list_push_back(&spt->page_list,&new_page->elem);
-		// printf("after uninit!\n");
-		// TODO va를 입력?
-		// spt->type = type;
-		// if(type == VM_ANON){
-// 
-			// struct anon_page anon;
-			// anon = spt->page->anon;
-			// spt->page = kpage;
-			// spt->type = VM_ANON;
-			// spt->page->anon.writable = writable;
-			// printf("anon!!!\n");
-		// }else if(type == VM_FILE){
-// 
-			// struct file_page file;
-			// file = spt->page->file;
-			// printf("file!!!\n");
+		struct page_table_node * new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
+		struct page * new_page = (struct page*)malloc(sizeof(struct page));
+		
+		// printf("uninit_page size = %d\n",sizeof(struct uninit_page));
+		// printf("kpage = %x\n",kpage);
+		// if (kpage == NULL){
+		// 	return false;
 		// }
 
+		// uninit_new(new_page,upage,init,type,aux,kpage->page_initializer);
+
+		// printf("after uninit!\n");
+		// list_push_back(&spt->page_list,&new_page->elem);
+		// TODO va를 입력?
+		// spt->type = type;
+		if(type == VM_ANON){
+			struct anon_page anon;
+			printf("anon!!!\n");
+		}else if(type == VM_FILE){
+
+			struct file_page file;
+			printf("file!!!\n");
+		}
+
 	}
-	// printf("vm_alloc_page_with_initializer end!!!!!\n");
+	printf("vm_alloc_page_with_initializer end!!!!!\n");
 	return true;
 err:
 	return false;
@@ -101,15 +96,15 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
-	printf("enter spt_find\n");
-	printf("va x= %x\n",va);
-	printf("va p= %p\n",va);
-	printf("va d= %d\n",va);
+	// printf("enter spt_find\n");
+	// printf("va x= %x\n",va);
+	// printf("va p= %p\n",va);
+	// printf("va d= %d\n",va);
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
 	struct list * page_list;
 	struct list_elem * page_list_elem;
-	printf("spt -> page_list before\n");
+	// printf("spt -> page_list before\n");
 	page_list = &spt->page_list;
 	page_list_elem = list_begin(page_list);
 
@@ -118,13 +113,13 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 		struct page_table_node * find_page = list_entry(page_list_elem,struct page_table_node, elem);
 		printf("before check va\n");
 		if(find_page->page->va == va){
-			printf("return find page\n");
+			printf("return find page!!!!!!!!!!!!!!\n");
 			return find_page->page;
 		}
 		printf("after check va\n");
 		page_list_elem = list_next(page_list_elem);
 	}
-	printf("spt_find_page_return_null\n");
+	// printf("spt_find_page_return_null\n");
 	return NULL;
 }
 
@@ -194,11 +189,13 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
+
 	//TODO: Fill this function.
-	// frame = palloc_get_page(PAL_USER);
-	// frame = vtop(frame);
-	// frame->kva = frame;
-	PANIC("todo");	
+
+	frame = palloc_get_page(PAL_USER);
+	// printf("%d\n",frame);
+	frame->kva = frame;
+	// PANIC("todo");	
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -225,12 +222,21 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	struct page *page = NULL;
 	
 	// TODO: Validate the fault
+	page = spt_find_page(spt,addr);
+
 	// printf("fault addr = %x\n",addr);
-	// printf("user bool = %d\n",user);
+	// printf("user bool = %d\n",user);  
 	// printf("write bool = %d\n",write);
 	// printf("not_present bool = %d\n",not_present);
 	// page = spt->page;
 	// TODO: Your code goes here
+	printf("page fault addr = %d\n",addr);
+	// if(is_kernel_vaddr(addr)){
+	// 	printf("is_kernel_vaddr\n");
+	// 	return true; 
+	// }
+
+
 
 	return vm_do_claim_page (page);
 }
@@ -256,15 +262,28 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-	// printf("vm_do_claim_page get frame\n");
+	printf("vm_do_claim_page get frame\n");
 
+	printf("page = %d\n",page);
+	printf("frame %x\n",frame);
 	// printf("vm_do_claim_page\n");
 
+	printf("fault??\n");
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
+	printf("fault??!!!!!!!!!!!!!!!!\n");
+
 
 	// TODO: Insert page table entry to map page's VA to frame's PA.
+	bool success = true;
+
+	success = pml4_set_page(thread_current()->pml4,page,frame,true);
+	if(!success){
+		printf("fail... pml4\n");
+		return false;
+	}
+	printf("success pml4_set_page !!!! \n");
 
 	return swap_in (page, frame->kva);
 }

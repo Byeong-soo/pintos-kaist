@@ -24,6 +24,14 @@ enum vm_type {
 	VM_MARKER_END = (1 << 31),
 };
 
+enum page_position {
+
+	VM_POS_FRAME = 0,
+	VM_POS_DISK = 1,
+	VM_POS_SWAP = 2,
+
+};
+
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
@@ -97,6 +105,7 @@ struct supplemental_page_table {
 
 struct page_table_node {
 	struct page *page;
+	enum page_position;
 	struct list_elem elem;
 };
 
