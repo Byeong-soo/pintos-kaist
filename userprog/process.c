@@ -32,6 +32,15 @@ struct fork_info
 	struct intr_frame *if_;
 };
 
+struct load_lazy_info
+{
+	uint32_t page_read_bytes;
+	uint32_t page_zero_bytes;
+	off_t offset;
+	struct file *file;
+};
+
+
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
@@ -360,7 +369,6 @@ int process_wait(tid_t child_tid)
 	{
 		wait_sema_down(sema);
 	}
-
 	return search_children_list(child_tid)->exit_code;
 }
 
@@ -491,7 +499,6 @@ load(const char *file_name, struct intr_frame *if_)
 		if (file_read(file, &phdr, sizeof phdr) != sizeof phdr)
 		{
 			file_lock_release();
-			// printf("!!!!!!!!!!!!!!fail file read\n");
 			goto done;
 		}
 		file_lock_release();
@@ -532,15 +539,14 @@ load(const char *file_name, struct intr_frame *if_)
 					read_bytes = 0;
 					zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
 				}
-				printf("!!!!!!!!mem_page = %d\n",mem_page);
 				if (!load_segment(file, file_page, (void *)mem_page,
 								  read_bytes, zero_bytes, writable)){
-									printf("here...?\n");
+									// printf("here...?\n");
 					goto done;
 								  }
 			}
 			else{
-									printf("hi...22222222?\n");
+									// printf("hi...22222222?\n");
 				goto done;
 			}
 			break;
@@ -549,17 +555,18 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* Set up stack. */
 	if (!setup_stack(if_)){
-		printf("!!!!!!!!!!!!!!fail setup stack\n");
+		// printf("!!!!!!!!!!!!!!fail setup stack\n");
 		goto done;
 	}
-	printf("!!!!!!!!!!!!!!after setup stack\n");
+	// printf("!!!!!!!!!!!!!!after setup stack\n");
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
-
+	
+	// printf("rip setting end@@@@@@@@@@@\n");
+	// printf("rip  = %x\n",if_->rip);
 	success = true;
 	thread_current()->exec_file = file;
 	file_deny_write(file);
-
 done:
 	/* We arrive here whether the load is successful or not. */
 	return success;
@@ -727,22 +734,39 @@ lazy_load_segment(struct page *page, void *aux)
 	// TODO: This called when the first page fault occurs on address VA.
 	// TODO: VA is available when calling this function.
 
-	size_t *buf = (size_t*)aux;
-	size_t page_read_bytes = *(buf);
-	size_t page_zero_bytes = *(buf+1);
-	size_t file = *(buf+2);
+	// size_t *buf = (size_t*)aux;
+	struct load_lazy_info *lazy_info = (struct load_lazy_info *) aux;
+	// size_t page_read_bytes = *(buf);
+	// size_t page_zero_bytes = *(buf+1);
+	// size_t file = *(buf+2);	
 
-	// printf("first = %d\n",page_read_bytes);
-	// printf("second = %d\n",page_zero_bytes);
+	file_seek(lazy_info->file,lazy_info->offset);
 
-	if (file_read(file, page, page_read_bytes) != (int)page_read_bytes)
+	// printf("enter lazy_load_segment\n");
+	// printf("=================load=================\n");
+	// printf("read_bytes = %d\n",lazy_info->page_read_bytes);
+	// printf("zero_bytes = %d\n",lazy_info->page_zero_bytes);
+	// printf("file pointer = %d\n",lazy_info->file);
+	// printf("file offset= %d\n",lazy_info->offset);
+	// printf("file's pos= %d\n",lazy_info->file->pos);
+	// printf("======================================\n");
+	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
+	// printf("%d\n",page->frame->kva);
+	// printf("%d\n",page->frame->kva + lazy_info->page_read_bytes);
+
+	if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
 	{
 		palloc_free_page(page);
 		return false;
 	}
-
-	memset(page + page_read_bytes, 0, page_zero_bytes);
-
+	
+	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
+	
+	// printf("page->frame->kva = %X\n",page->frame->kva);
+	// printf("page->va = %X\n",page->va);
+	// printf("file offffffset %d\n",lazy_info->file->pos);
+	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
+	free(lazy_info);
 	return true;
 }
 
@@ -768,9 +792,11 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT(pg_ofs(upage) == 0);
 	ASSERT(ofs % PGSIZE == 0);
 
-	size_t bytes[3];
-
 	file_seek(file, ofs);
+	off_t offset = file->pos;
+
+	// size_t bytes[3];
+
 	while (read_bytes > 0 || zero_bytes > 0)
 	{
 		/* Do calculate how to fill this page.
@@ -785,14 +811,36 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
 		// printf("page_read_bytes = %d\n",page_read_bytes);
 		// printf("page_zero_bytes = %d\n",page_zero_bytes);
+		//! free!!
+		struct load_lazy_info * lazy_info = (struct load_lazy_info*)malloc(sizeof(struct load_lazy_info));
 
-		bytes[0] = page_read_bytes;
-		bytes[1] = page_zero_bytes;
-		bytes[2] = file;
+		lazy_info->page_read_bytes = 0;
+		lazy_info->page_zero_bytes = 0;
+
+		lazy_info->page_read_bytes = page_read_bytes;
+		lazy_info->page_zero_bytes = page_zero_bytes;
+		lazy_info->offset =	 offset;
+	
+		// printf("offset !!!!! =%d\n",offset);
+		lazy_info->file = file;
+		// printf("=================save=================\n");
+		// printf("page_zero =  %d\n",lazy_info->page_zero_bytes);
+		// printf("page_read =  %d\n",lazy_info->page_read_bytes);
+		// printf("file's offset =  %d\n",offset);
+		// printf("file's poss = %d\n",file->pos);
+		
+
+		// printf("offset !!!!! =%d\n",offset);
+
+		// bytes[0] = page_read_bytes;
+		// bytes[1] = page_zero_bytes;
+		// bytes[2] = file;
 
 		// TODO: Set up aux to pass information to the lazy_load_segment.
 
-		void *aux = bytes;
+		void *aux = lazy_info;
+		enum vm_type type = VM_ANON;
+
 		// printf("vm_allock_page before %d\n",upage);
 		if (!vm_alloc_page_with_initializer(VM_ANON, upage,
 											writable, lazy_load_segment, aux))
@@ -803,9 +851,14 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
+
+		// printf("read_byte = %d\n",read_bytes);
+		// printf("zero_byte = %d\n",zero_bytes);
+		// printf("======================================\n");
+
 		upage += PGSIZE;
+		offset += page_read_bytes;
 	}
-	printf("end load_segment\n");
 	return true;
 }
 
@@ -815,7 +868,7 @@ setup_stack(struct intr_frame *if_)
 {
 	bool success = false;
 	void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
-
+	// printf("enter setup_stack!!!\n");
 	//TODO: Map the stack on stack_bottom and claim the page immediately.
 	// TODO: If success, set the rsp accordingly.
 	// TODO: You should mark the page is stack.
@@ -830,7 +883,7 @@ setup_stack(struct intr_frame *if_)
 	success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, true));
 	if_->rsp = USER_STACK;
 
-	return success;
+	return true;
 }
 #endif /* VM */
 
