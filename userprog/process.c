@@ -113,7 +113,6 @@ tid_t process_fork(const char *name, struct intr_frame *if_)
 	struct fork_info *fork_info = (struct fork_info *)malloc(sizeof(struct fork_info));
 	fork_info->parent_t = thread_current();
 	fork_info->if_ = if_;
-
 	tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, fork_info);
 	process_fork_sema_down();
 
@@ -212,26 +211,25 @@ __do_fork(void *aux)
 	/* 1. Read the cpu context to local stack. */
 
 	memcpy(&if_, syscall_if, sizeof(struct intr_frame));
-
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
-	if (current->pml4 == NULL)
+	if (current->pml4 == NULL){
 		goto error;
+	}
 
 	process_activate(current);
 
 #ifdef VM
 	supplemental_page_table_init(&current->spt);
-	if (!supplemental_page_table_copy(&current->spt, &parent->spt))
+	if (!supplemental_page_table_copy(&current->spt, &parent->spt)){
 		goto error;
+	}
 #else
-
 	if (!pml4_for_each(parent->pml4, duplicate_pte, fork_info))
 	{
 		goto error;
 	}
 #endif
-
 	copy_fd_list(parent, current);
 	process_init();
 	/* Finally, switch to the newly created process. */
@@ -242,11 +240,11 @@ __do_fork(void *aux)
 		free(fork_info);
 		if_.R.rax = 0;
 		process_fork_sema_up();
-
 		thread_yield();
 		do_iret(&if_);
 	}
 error:
+	printf("in error\n");
 	parent->make_child_success = false;
 	free(fork_info);
 	thread_current()->exit_code = -1;
@@ -751,6 +749,7 @@ lazy_load_segment(struct page *page, void *aux)
 	// printf("file's pos= %d\n",lazy_info->file->pos);
 	// printf("======================================\n");
 	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
+	// printf("page va = %X\n",page->va);
 	// printf("%d\n",page->frame->kva);
 	// printf("%d\n",page->frame->kva + lazy_info->page_read_bytes);
 
@@ -761,12 +760,13 @@ lazy_load_segment(struct page *page, void *aux)
 	}
 	
 	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
-	
+
 	// printf("page->frame->kva = %X\n",page->frame->kva);
 	// printf("page->va = %X\n",page->va);
 	// printf("file offffffset %d\n",lazy_info->file->pos);
 	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
-	free(lazy_info);
+	//! free!!
+	// free(lazy_info);
 	return true;
 }
 
@@ -875,14 +875,13 @@ setup_stack(struct intr_frame *if_)
 	/* TODO: Your code goes here */
 
 	struct thread *t = thread_current();
+	// uint8_t *kpage,*upage;
 
-	uint8_t *kpage,*upage;
-	kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-	upage = ((uint8_t *)USER_STACK) - PGSIZE;
-
-	success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, true));
+	// kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	// upage = ((uint8_t *)USER_STACK) - PGSIZE;
+	vm_claim_page(stack_bottom);
+	// success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, true));
 	if_->rsp = USER_STACK;
-
 	return true;
 }
 #endif /* VM */
@@ -923,7 +922,6 @@ void copy_fd_list(struct thread *parent, struct thread *child)
 //* 현재스레드의 fd_list clear
 void clear_fd_list()
 {
-
 	struct list *fd_list;
 	struct fd *delete_fd;
 
@@ -949,7 +947,6 @@ void clear_fd_list()
 
 void del_child_info()
 {
-
 	struct child_info *tep;
 	struct thread *parent = thread_current()->parent_thread;
 	struct list *children_list = &parent->children_list;

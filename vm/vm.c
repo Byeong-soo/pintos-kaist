@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include <string.h>
 #include <round.h>
 #include <stdio.h>
 
@@ -48,7 +49,8 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	// if(type != VM_MARKER_0)
+	ASSERT (VM_TYPE(type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
@@ -89,6 +91,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}else if(type == VM_FILE){
 			struct file_page file;
 		}
+		// }else if(type == VM_MARKER_0){
+		// 	uninit_new(new_page,upage,,type,NULL,NULL);
+		// }
 
 		//! TODO 오류 처리
 		spt_insert_page(spt,new_page);
@@ -132,6 +137,7 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	struct page_table_node* new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
 
 	if(new_page_node == NULL){
+		printf("faile\n");
 		return false;
 	}
 
@@ -200,6 +206,10 @@ vm_get_frame (void) {
 	//TODO: Fill this function.
 	frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
 	frame->page = NULL;
+
+	if(frame == NULL){
+		PANIC("TODO");
+	}
 	
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -232,6 +242,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	page = spt_find_page(spt,addrs);
 
 	if(page == NULL){
+		printf("page NULL\n");
 		return false;
 	}
 
@@ -251,8 +262,16 @@ vm_dealloc_page (struct page *page) {
 bool
 vm_claim_page (void *va) {
 	struct page *page = NULL;
+	struct thread* t = thread_current();
 	/* TODO: Fill this function */
-
+	// page = (struct page*)malloc(sizeof(struct page));
+	// page->va = va;
+	
+	vm_alloc_page(VM_ANON,va,true);
+	// vm_alloc_page(VM_MARKER_0,va,true);
+	page = spt_find_page(&t->spt,va);
+	page->is_stack = VM_MARKER_0;
+	// vm_alloc_page(1,va,true);
 	return vm_do_claim_page (page);
 }
 
@@ -261,10 +280,13 @@ static bool
 vm_do_claim_page (struct page *page) {
 
 	if(pml4_get_page(thread_current()->pml4, page->va) != NULL){
+		// printf("pml4_get_page is not null!!!!!!!!!!!!!!!!!!!!!\n");
 		return false;
 	}
+	// printf("pml4_get_page is NULL\n");
 
 	struct frame *frame = vm_get_frame ();
+
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
@@ -274,9 +296,10 @@ vm_do_claim_page (struct page *page) {
 
 	success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,true);
 	if(!success){
+		// printf("pml4 set page faile!!!!!!!!!!!!!!!!!!!!!\n");
 		return false;
 	}
-
+	// printf("before swap\n");
 	return swap_in (page, frame->kva);
 }
 
@@ -287,12 +310,71 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 	//* 3주차 추가
 	struct thread* t = thread_current();
 	list_init(&t->spt.page_list);
+	spt->pml4 = t->pml4;
 }
 
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
+
+	struct list *p_spt_list, *c_spt_list;
+	struct page_table_node * copy_page_node;
+	struct file *copy_file;
+
+	bool success = true;
+	
+	p_spt_list = &src->page_list;
+	c_spt_list = &dst->page_list;
+
+	if (list_empty(p_spt_list))
+		return true;
+
+	struct list_elem *cur;
+
+	cur = list_begin(p_spt_list);
+	while (cur != list_end(p_spt_list))
+	{
+		copy_page_node = list_entry(cur, struct page_table_node, elem);
+		if(copy_page_node->page != NULL){
+
+			enum vm_type type = copy_page_node->page->uninit.type;
+			void * va = copy_page_node->page->va;
+			bool writable = copy_page_node->page->writeable;
+			vm_initializer *init = copy_page_node->page->uninit.init;
+			void *aux = copy_page_node->page->uninit.aux;
+
+			struct page * new_page = (struct page*)malloc(sizeof(struct page));
+			new_page->writeable = writable;
+
+			if(new_page == NULL){
+				return false;
+			}
+
+			if(type == VM_ANON){
+				uninit_new(new_page,va,init,type,aux,anon_initializer);
+
+			}else if(type == VM_FILE){
+				struct file_page file;
+			}
+
+			//! TODO 오류 처리
+			spt_insert_page(dst,new_page);
+			vm_do_claim_page(new_page);
+			// if(copy_page_node->page->is_stack == VM_MARKER_0){
+			memcpy(new_page->va,copy_page_node->page->va,PGSIZE);
+			memcpy(new_page->frame->kva,copy_page_node->page->frame->kva,PGSIZE);
+			// }			
+			// printf("origin frame kva = %X\n",copy_page_node->page->frame->kva);
+			// printf("copy frame kva = %X\n",new_page->frame->kva);
+			// printf("origin page va= %X\n",copy_page_node->page->va);
+			// printf("copy page va= %X\n",new_page->va);
+			// printf("result success = %d\n",success);
+		}
+		cur = list_next(cur);
+	}
+
+	return true;
 }
 
 /* Free the resource hold by the supplemental page table */
