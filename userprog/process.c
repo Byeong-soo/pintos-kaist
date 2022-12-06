@@ -26,20 +26,6 @@
 #include "vm/vm.h"
 #endif
 
-struct fork_info
-{
-	struct thread *parent_t;
-	struct intr_frame *if_;
-};
-
-struct load_lazy_info
-{
-	uint32_t page_read_bytes;
-	uint32_t page_zero_bytes;
-	off_t offset;
-	struct file *file;
-};
-
 
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
@@ -113,6 +99,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_)
 	struct fork_info *fork_info = (struct fork_info *)malloc(sizeof(struct fork_info));
 	fork_info->parent_t = thread_current();
 	fork_info->if_ = if_;
+
 	tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, fork_info);
 	process_fork_sema_down();
 
@@ -218,12 +205,13 @@ __do_fork(void *aux)
 	}
 
 	process_activate(current);
-
+	// printf("before spt copy\n");
 #ifdef VM
 	supplemental_page_table_init(&current->spt);
 	if (!supplemental_page_table_copy(&current->spt, &parent->spt)){
 		goto error;
 	}
+	// printf("after spt copy\n");
 #else
 	if (!pml4_for_each(parent->pml4, duplicate_pte, fork_info))
 	{
@@ -839,7 +827,6 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		// TODO: Set up aux to pass information to the lazy_load_segment.
 
 		void *aux = lazy_info;
-		enum vm_type type = VM_ANON;
 
 		// printf("vm_allock_page before %d\n",upage);
 		if (!vm_alloc_page_with_initializer(VM_ANON, upage,

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <round.h>
 #include <stdio.h>
+#include "../include/userprog/process.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -80,7 +81,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// }
 
 
-		// printf("new_page _init %d\n",new_page->uninit.init);
+		// printf("new_page va = %X\n",upage);
 		// list_push_back(&spt->page_list,&new_page->elem);
 
 		// spt->type = type;
@@ -136,8 +137,8 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 
 	struct page_table_node* new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
 
-	if(new_page_node == NULL){
-		printf("faile\n");
+	if(new_page_node == NULL || page == NULL){
+		free(new_page_node);
 		return false;
 	}
 
@@ -242,7 +243,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	page = spt_find_page(spt,addrs);
 
 	if(page == NULL){
-		printf("page NULL\n");
+		// printf("page NULL\n");
 		return false;
 	}
 
@@ -310,7 +311,6 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 	//* 3주차 추가
 	struct thread* t = thread_current();
 	list_init(&t->spt.page_list);
-	spt->pml4 = t->pml4;
 }
 
 /* Copy supplemental page table from src to dst */
@@ -337,6 +337,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	{
 		copy_page_node = list_entry(cur, struct page_table_node, elem);
 		if(copy_page_node->page != NULL){
+			// printf("copy spt\n");
+			// printf("copy va = %X\n",copy_page_node->page->va);
 
 			enum vm_type type = copy_page_node->page->uninit.type;
 			void * va = copy_page_node->page->va;
@@ -345,14 +347,18 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			void *aux = copy_page_node->page->uninit.aux;
 
 			struct page * new_page = (struct page*)malloc(sizeof(struct page));
-			new_page->writeable = writable;
+			struct load_lazy_info * new_aux = (struct load_lazy_info*)malloc(sizeof(struct load_lazy_info));
 
+			if(aux != NULL){
+				memcpy(new_aux,aux,sizeof(struct load_lazy_info));
+			}
+			new_page->writeable = writable;
 			if(new_page == NULL){
 				return false;
 			}
 
 			if(type == VM_ANON){
-				uninit_new(new_page,va,init,type,aux,anon_initializer);
+				uninit_new(new_page,va,init,type,new_aux,anon_initializer);
 
 			}else if(type == VM_FILE){
 				struct file_page file;
@@ -360,10 +366,14 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 			//! TODO 오류 처리
 			spt_insert_page(dst,new_page);
-			vm_do_claim_page(new_page);
+
+			if(copy_page_node->page->frame != NULL){
+				vm_do_claim_page(new_page);
+				memcpy(new_page->frame->kva,copy_page_node->page->frame->kva,PGSIZE);
+			}
+
 			// if(copy_page_node->page->is_stack == VM_MARKER_0){
-			memcpy(new_page->va,copy_page_node->page->va,PGSIZE);
-			memcpy(new_page->frame->kva,copy_page_node->page->frame->kva,PGSIZE);
+			// memcpy(new_page->va,copy_page_node->page->va,PGSIZE);
 			// }			
 			// printf("origin frame kva = %X\n",copy_page_node->page->frame->kva);
 			// printf("copy frame kva = %X\n",new_page->frame->kva);
@@ -382,4 +392,28 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	// TODO: Destroy all the supplemental_page_table hold by thread and
 	// TODO: writeback all the modified contents to the storage.
+
+	struct list* delete_list = &spt->page_list;	
+	struct page_table_node * delete_page_node;
+	struct list_elem * delete_elem = list_begin(delete_list);
+	struct page * delete_page;
+	struct frame * delete_frame;
+	char index = 0;
+
+	if(list_empty(delete_list) || delete_elem == NULL){
+		return;
+	}
+
+	while (delete_elem != list_end(delete_list))
+	{	
+		delete_page_node = list_entry(delete_elem, struct page_table_node, elem);
+		delete_page = delete_page_node->page;
+		delete_elem = list_remove(delete_elem);
+		free(delete_page->uninit.aux);
+		if(delete_page->frame != NULL){
+			free(delete_page->frame);
+		}
+		free(delete_page);
+		free(delete_page_node);
+	}
 }

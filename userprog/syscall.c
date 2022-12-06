@@ -141,6 +141,7 @@ pid_t syscall_fork(struct intr_frame *f)
 	return_value = process_fork(thread_name, f);
 	// printf("fork return_value %d\n",return_value);
 	f->R.rax = return_value;
+	return return_value;
 }
 
 // exec func parameter : const char *cmd_line
@@ -195,6 +196,7 @@ int syscall_wait(struct intr_frame *f)
 
 	list_remove(&child_info->elem);
 	free(child_info);
+	// printf("end_wait\n");
 	return return_value;
 }
 
@@ -292,6 +294,7 @@ int syscall_filesize(struct intr_frame *f)
 int syscall_read(struct intr_frame *f)
 {	
 	struct thread* t = thread_current();
+	// print_values(f,0);
 	// printf("is user = %d\n",is_user_vaddr(pg_round_down(f->R.rsi)));
 	// printf("is user = %d\n",USER_STACK > f->R.rsi);
 	// printf("buffer %X\n",f->R.rsi);
@@ -324,6 +327,7 @@ int syscall_read(struct intr_frame *f)
 	return_value = file_read(read_fd->file, buf, size);
 	lock_release(&filesys_lock);
 	f->R.rax = return_value;
+	// printf("end_syscall_read\n");
 	return return_value;
 }
 

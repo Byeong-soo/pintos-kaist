@@ -101,7 +101,6 @@ struct supplemental_page_table {
 	// 트랩이 발생한 시점에 물리페이지를 0으로 채우고 프로세스의 주소 공간으로 매핑하는 등의 필요작업을 하게한다.
 	// 해당 페이지를 전혀 접근하지 않는다면 이 모든 작업을 피할 수 있으며, 이것이 장점
 	bool access;
-	uint64_t pml4;
 	struct list page_list;
 };
 

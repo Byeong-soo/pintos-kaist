@@ -53,6 +53,21 @@ struct ELF64_PHDR {
 	uint64_t p_align;
 };
 
+
+struct fork_info
+{
+	struct thread *parent_t;
+	struct intr_frame *if_;
+};
+
+struct load_lazy_info
+{
+	uint32_t page_read_bytes;
+	uint32_t page_zero_bytes;
+	off_t offset;
+	struct file *file;
+};
+
 tid_t process_create_initd (const char *file_name);
 tid_t process_fork (const char *name, struct intr_frame *if_);
 int process_exec (void *f_name);
