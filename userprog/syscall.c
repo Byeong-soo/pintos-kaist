@@ -19,6 +19,7 @@
 #include "../include/userprog/process.h"
 
 #include "userprog/process.h"
+#include "threads/mmu.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -294,6 +295,7 @@ int syscall_filesize(struct intr_frame *f)
 int syscall_read(struct intr_frame *f)
 {	
 	struct thread* t = thread_current();
+	struct page * page;
 	// print_values(f,0);
 	// printf("is user = %d\n",is_user_vaddr(pg_round_down(f->R.rsi)));
 	// printf("is user = %d\n",USER_STACK > f->R.rsi);
@@ -302,11 +304,27 @@ int syscall_read(struct intr_frame *f)
 	// printf("USER_STACK = %X\n",USER_STACK);
 	// printf("testing %X\n",testing);
 
+	page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
 	// if (is_kernel_vaddr((f->R.rsi)) || pml4_get_page(t->pml4, f->R.rsi) == NULL)
-	if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
-	{
+
+	// printf("int fd = %d\n",f->R.rdi);
+	// printf("read rsi = %X\n",f->R.rsi);
+	// printf("stack bottom = %X\n",t->spt.stack_bottom);
+	// printf("page va = %X\n",page->va);
+	// printf("page writable = %d\n",page->writeable);
+	// if(page == NULL || page->writeable == 0){
+	if(page == NULL){
 		syscall_abnormal_exit(-1);
 	}
+
+	// if((f->R.rsi < t->spt.stack_bottom || f->R.rsi > USER_STACK)){
+	// 	syscall_abnormal_exit(-1);
+	// }
+
+	// if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
+	// {
+	// 	syscall_abnormal_exit(-1);
+	// }
 
 	// check_addr(f->R.rsi);
 	int fd_value, size;
@@ -334,11 +352,30 @@ int syscall_read(struct intr_frame *f)
 // write func parameter : int fd, const void *buffer, unsigned size
 void syscall_write(struct intr_frame *f)
 {
+	struct thread * t = thread_current();
+	struct page * page;
 	// if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
 	// {
 	// 	syscall_abnormal_exit(-1);
 	// }
-	check_addr(f->R.rsi);
+	// printf("\nwrite rsi = %d\n\n",f->R.rsi);
+	page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
+	// if( page == NULL || page->writeable == 1){
+	if(page == NULL || page->writeable == 0){
+		syscall_abnormal_exit(-1);
+	}
+
+
+	
+	// if(f->R.rsi < t->spt.stack_bottom || f->R.rsi > USER_STACK){
+	// 	syscall_abnormal_exit(-1);
+	// }
+
+	if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
+	{
+		syscall_abnormal_exit(-1);
+	}
+	// check_addr(f->R.rsi);
 	int fd_value = f->R.rdi;
 	char *buf = f->R.rsi;
 	int size = f->R.rdx;
@@ -533,4 +570,10 @@ void file_lock_acquire()
 void file_lock_release()
 {
 	lock_release(&filesys_lock);
+}
+
+bool check_file_lock_holder(){
+	if(filesys_lock.holder == thread_current())
+		return true;
+	return false;
 }

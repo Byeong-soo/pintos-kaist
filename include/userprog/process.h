@@ -65,6 +65,7 @@ struct load_lazy_info
 	uint32_t page_read_bytes;
 	uint32_t page_zero_bytes;
 	off_t offset;
+	bool writable;
 	struct file *file;
 };
 

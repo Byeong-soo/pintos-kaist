@@ -65,4 +65,5 @@ void clear_fd_list();
 
 void file_lock_acquire();
 void file_lock_release();
+bool check_file_lock_holder();
 #endif /* userprog/syscall.h */

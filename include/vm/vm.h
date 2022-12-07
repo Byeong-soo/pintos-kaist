@@ -55,7 +55,8 @@ struct page {
 
 	/* Your implementation */
 	bool writeable;
-	enum vm_type is_stack;
+	enum vm_type vm_type;
+	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
 	union {
@@ -102,6 +103,7 @@ struct supplemental_page_table {
 	// 해당 페이지를 전혀 접근하지 않는다면 이 모든 작업을 피할 수 있으며, 이것이 장점
 	bool access;
 	struct list page_list;
+	uint64_t stack_bottom;
 };
 
 struct page_table_node {

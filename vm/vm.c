@@ -68,8 +68,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// struct page_table_node * new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
 		//! free!!
 		struct page * new_page = (struct page*)malloc(sizeof(struct page));
-		new_page->writeable = writable;
-
+		
+		// printf("new_page va= %X\n",upage);
+		// printf("new_page writable = %d\n",writable);
+		// printf("new_page writable = %d\n",new_page->writeable);
 		if(new_page == NULL){
 			goto err;
 		}
@@ -81,12 +83,13 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// }
 
 
-		// printf("new_page va = %X\n",upage);
+
 		// list_push_back(&spt->page_list,&new_page->elem);
 
 		// spt->type = type;
 		if(type == VM_ANON){
 			uninit_new(new_page,upage,init,type,aux,anon_initializer);
+			new_page->writeable = writable;
 			// printf("anon!!!\n");
 
 		}else if(type == VM_FILE){
@@ -96,10 +99,11 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// 	uninit_new(new_page,upage,,type,NULL,NULL);
 		// }
 
+		// printf("new_page va = %X\n",upage);
+		// printf("new_page writable = %d\n",new_page->writeable);
 		//! TODO 오류 처리
 		spt_insert_page(spt,new_page);
 		// printf("hi!!!!!!!!!!!!@@@@@@@@@@@@@@@\n");
-
 	}
 	// printf("vm_alloc_page_with_initializer end!!!!!\n");
 	return true;
@@ -221,6 +225,20 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr) {
+	bool success = false;
+	// uint64_t new_stack_bottom = addr - PGSIZE;
+	struct thread *t = thread_current();
+	uint64_t cur_thread_bottom = t->spt.stack_bottom;
+
+	do
+	{
+		cur_thread_bottom = cur_thread_bottom - PGSIZE;
+		success = vm_claim_page(cur_thread_bottom);
+	} while (cur_thread_bottom != addr);
+	
+	t->spt.stack_bottom = cur_thread_bottom;
+	// t->spt.stack_bottom = new_stack_bottom;
+	// vm_claim_page(new_stack_bottom);
 }
 
 /* Handle the fault on write_protected page */
@@ -233,21 +251,43 @@ bool
 vm_try_handle_fault (struct intr_frame *f , void *addr ,
 		bool user , bool write , bool not_present ) {
 	// printf("handler_fault\n");
+	struct thread * t = thread_current();
+	struct supplemental_page_table *spt = &t->spt;
 
-	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	size_t addrs = pg_round_down(addr);
+	uint64_t addrs = pg_round_down(addr);
 
+	// printf("stack bottom = %X\n",spt->stack_bottom);
+	// printf("addr = %X\n",addr);
+	// printf("USER STACK - addr = %X\n",USER_STACK - (uint64_t)addr);
+	// printf("rsp = %X\n",f->rsp);
+	// printf("USER STACK - rsp = %X\n",USER_STACK - f->rsp);
+	// printf("writable = %d\n",write);
+	
 	// TODO: Validate the fault
 
 	page = spt_find_page(spt,addrs);
 
 	if(page == NULL){
-		// printf("page NULL\n");
-		return false;
-	}
+		if(user){
+			// if(spt->stack_bottom - PGSIZE < addr && addr < spt->stack_bottom){
+				// printf("addr pg_down = %X\n",addrs);
+				// printf("USER_STACK-PGSIZE - addr = %X\n",(USER_STACK-PGSIZE) - addrs);
+			if((spt->stack_bottom > f->rsp) && ((USER_STACK-PGSIZE) - addrs) <= 0x10000){
+				vm_stack_growth(addrs);
+				return true; 
+			}
+			// printf("end!!!!!!\n");
+			thread_current()->exit_code = -1;
+			thread_exit();
+		}
 
+
+
+	}
 	// TODO: Your code goes here
+	thread_current()->pre_pagefault_rsp = f->rsp;
+	// printf("enter vm_do_claim_page\n");
 	return vm_do_claim_page (page);
 }
 
@@ -264,14 +304,14 @@ bool
 vm_claim_page (void *va) {
 	struct page *page = NULL;
 	struct thread* t = thread_current();
-	/* TODO: Fill this function */
+	// TODO: Fill this function
 	// page = (struct page*)malloc(sizeof(struct page));
 	// page->va = va;
 	
 	vm_alloc_page(VM_ANON,va,true);
 	// vm_alloc_page(VM_MARKER_0,va,true);
 	page = spt_find_page(&t->spt,va);
-	page->is_stack = VM_MARKER_0;
+	page->vm_type = VM_MARKER_0;
 	// vm_alloc_page(1,va,true);
 	return vm_do_claim_page (page);
 }
@@ -280,14 +320,14 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 
-	if(pml4_get_page(thread_current()->pml4, page->va) != NULL){
-		// printf("pml4_get_page is not null!!!!!!!!!!!!!!!!!!!!!\n");
-		return false;
-	}
+	// if(pml4_get_page(thread_current()->pml4, page->va) != NULL){
+	// 	printf("pml4_get_page is not null!!!!!!!!!!!!!!!!!!!!!\n");
+	// 	return false;
+	// }
 	// printf("pml4_get_page is NULL\n");
 
 	struct frame *frame = vm_get_frame ();
-
+	// printf("frame kva = %X\n",frame->kva);
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
@@ -297,10 +337,14 @@ vm_do_claim_page (struct page *page) {
 
 	success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,true);
 	if(!success){
-		// printf("pml4 set page faile!!!!!!!!!!!!!!!!!!!!!\n");
 		return false;
 	}
-	// printf("before swap\n");
+
+	if(page->vm_type == VM_MARKER_0){
+		return true;
+	}
+
+	// printf("page writable\n",page->writeable);
 	return swap_in (page, frame->kva);
 }
 
@@ -340,6 +384,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			// printf("copy spt\n");
 			// printf("copy va = %X\n",copy_page_node->page->va);
 
+
+
 			enum vm_type type = copy_page_node->page->uninit.type;
 			void * va = copy_page_node->page->va;
 			bool writable = copy_page_node->page->writeable;
@@ -357,9 +403,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				return false;
 			}
 
-			if(type == VM_ANON){
-				uninit_new(new_page,va,init,type,new_aux,anon_initializer);
 
+			if(type == VM_ANON){
+				uninit_new(new_page,va,init,type,new_aux,anon_initializer);		
 			}else if(type == VM_FILE){
 				struct file_page file;
 			}
@@ -371,7 +417,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				vm_do_claim_page(new_page);
 				memcpy(new_page->frame->kva,copy_page_node->page->frame->kva,PGSIZE);
 			}
-
+			new_page->writeable = writable;
+			// printf("copyed new page va = %X\n",new_page->va);
+			// printf("copyed new page writable = %d\n",new_page->writeable);
 			// if(copy_page_node->page->is_stack == VM_MARKER_0){
 			// memcpy(new_page->va,copy_page_node->page->va,PGSIZE);
 			// }			

@@ -719,15 +719,19 @@ lazy_load_segment(struct page *page, void *aux)
 	// TODO: Load the segment from the file
 	// TODO: This called when the first page fault occurs on address VA.
 	// TODO: VA is available when calling this function.
-
+	bool has_lock = false;
+	bool success = false;
+	has_lock = check_file_lock_holder();
 	// size_t *buf = (size_t*)aux;
 	struct load_lazy_info *lazy_info = (struct load_lazy_info *) aux;
 	// size_t page_read_bytes = *(buf);
 	// size_t page_zero_bytes = *(buf+1);
 	// size_t file = *(buf+2);	
 
+	if(!has_lock){file_lock_acquire();}
 	file_seek(lazy_info->file,lazy_info->offset);
-
+	if(!has_lock){file_lock_release();}
+	// file_lock_release();
 	// printf("enter lazy_load_segment\n");
 	// printf("=================load=================\n");
 	// printf("read_bytes = %d\n",lazy_info->page_read_bytes);
@@ -740,17 +744,27 @@ lazy_load_segment(struct page *page, void *aux)
 	// printf("page va = %X\n",page->va);
 	// printf("%d\n",page->frame->kva);
 	// printf("%d\n",page->frame->kva + lazy_info->page_read_bytes);
-
+	if(!has_lock){file_lock_acquire();}
 	if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
-	{
+	{ 
+		if(!has_lock){file_lock_release();}
 		palloc_free_page(page);
 		return false;
 	}
-	
+	if(!has_lock){file_lock_release();}
+
 	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
+
+	if(lazy_info->writable == 0){
+		success = pml4_set_page(thread_current()->pml4,page->va,page->frame->kva,false);
+		if(!success){
+			return false;
+		}
+	}
 
 	// printf("page->frame->kva = %X\n",page->frame->kva);
 	// printf("page->va = %X\n",page->va);
+	// printf("writable = %X\n",page->writeable);
 	// printf("file offffffset %d\n",lazy_info->file->pos);
 	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
 	//! free!!
@@ -808,6 +822,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		lazy_info->page_read_bytes = page_read_bytes;
 		lazy_info->page_zero_bytes = page_zero_bytes;
 		lazy_info->offset =	 offset;
+		lazy_info->writable = writable;
 	
 		// printf("offset !!!!! =%d\n",offset);
 		lazy_info->file = file;
@@ -854,20 +869,18 @@ static bool
 setup_stack(struct intr_frame *if_)
 {
 	bool success = false;
-	void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
+	void *stack_bottom_p = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
 	// printf("enter setup_stack!!!\n");
+
 	//TODO: Map the stack on stack_bottom and claim the page immediately.
 	// TODO: If success, set the rsp accordingly.
 	// TODO: You should mark the page is stack.
 	/* TODO: Your code goes here */
 
 	struct thread *t = thread_current();
-	// uint8_t *kpage,*upage;
+	t->spt.stack_bottom = stack_bottom_p;
+	vm_claim_page(stack_bottom_p);
 
-	// kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-	// upage = ((uint8_t *)USER_STACK) - PGSIZE;
-	vm_claim_page(stack_bottom);
-	// success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, true));
 	if_->rsp = USER_STACK;
 	return true;
 }

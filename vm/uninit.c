@@ -46,10 +46,11 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 static bool
 uninit_initialize (struct page *page, void *kva) {
 	struct uninit_page *uninit = &page->uninit;
-	
+
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = page->uninit.aux;
+	page->vm_type = VM_UNINIT;
 	// TODO: You may need to fix this function.
 	if(uninit->page_initializer == NULL || uninit->init == NULL){
 		return true;
