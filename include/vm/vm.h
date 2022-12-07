@@ -24,6 +24,14 @@ enum vm_type {
 	VM_MARKER_END = (1 << 31),
 };
 
+enum page_position {
+
+	VM_POS_FRAME = 0,
+	VM_POS_DISK = 1,
+	VM_POS_SWAP = 2,
+
+};
+
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
@@ -46,7 +54,9 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
-
+	bool writeable;
+	enum vm_type vm_type;
+	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
 	union {
@@ -93,10 +103,12 @@ struct supplemental_page_table {
 	// 해당 페이지를 전혀 접근하지 않는다면 이 모든 작업을 피할 수 있으며, 이것이 장점
 	bool access;
 	struct list page_list;
+	uint64_t stack_bottom;
 };
 
 struct page_table_node {
 	struct page *page;
+	enum page_position;
 	struct list_elem elem;
 };
 

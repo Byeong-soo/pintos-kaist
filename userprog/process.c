@@ -26,11 +26,6 @@
 #include "vm/vm.h"
 #endif
 
-struct fork_info
-{
-	struct thread *parent_t;
-	struct intr_frame *if_;
-};
 
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
@@ -203,26 +198,26 @@ __do_fork(void *aux)
 	/* 1. Read the cpu context to local stack. */
 
 	memcpy(&if_, syscall_if, sizeof(struct intr_frame));
-
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
-	if (current->pml4 == NULL)
+	if (current->pml4 == NULL){
 		goto error;
+	}
 
 	process_activate(current);
-
+	// printf("before spt copy\n");
 #ifdef VM
 	supplemental_page_table_init(&current->spt);
-	if (!supplemental_page_table_copy(&current->spt, &parent->spt))
+	if (!supplemental_page_table_copy(&current->spt, &parent->spt)){
 		goto error;
+	}
+	// printf("after spt copy\n");
 #else
-
 	if (!pml4_for_each(parent->pml4, duplicate_pte, fork_info))
 	{
 		goto error;
 	}
 #endif
-
 	copy_fd_list(parent, current);
 	process_init();
 	/* Finally, switch to the newly created process. */
@@ -233,11 +228,11 @@ __do_fork(void *aux)
 		free(fork_info);
 		if_.R.rax = 0;
 		process_fork_sema_up();
-
 		thread_yield();
 		do_iret(&if_);
 	}
 error:
+	printf("in error\n");
 	parent->make_child_success = false;
 	free(fork_info);
 	thread_current()->exit_code = -1;
@@ -360,7 +355,6 @@ int process_wait(tid_t child_tid)
 	{
 		wait_sema_down(sema);
 	}
-
 	return search_children_list(child_tid)->exit_code;
 }
 
@@ -491,7 +485,6 @@ load(const char *file_name, struct intr_frame *if_)
 		if (file_read(file, &phdr, sizeof phdr) != sizeof phdr)
 		{
 			file_lock_release();
-			// printf("!!!!!!!!!!!!!!fail file read\n");
 			goto done;
 		}
 		file_lock_release();
@@ -525,7 +518,7 @@ load(const char *file_name, struct intr_frame *if_)
 					read_bytes = page_offset + phdr.p_filesz;
 					zero_bytes = (ROUND_UP(page_offset + phdr.p_memsz, PGSIZE) - read_bytes);
 				}
-				else
+				else 
 				{
 					/* Entirely zero.
 					 * Don't read anything from disk. */
@@ -554,11 +547,12 @@ load(const char *file_name, struct intr_frame *if_)
 	// printf("!!!!!!!!!!!!!!after setup stack\n");
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
-
+	
+	// printf("rip setting end@@@@@@@@@@@\n");
+	// printf("rip  = %x\n",if_->rip);
 	success = true;
 	thread_current()->exec_file = file;
 	file_deny_write(file);
-
 done:
 	/* We arrive here whether the load is successful or not. */
 	return success;
@@ -725,23 +719,56 @@ lazy_load_segment(struct page *page, void *aux)
 	// TODO: Load the segment from the file
 	// TODO: This called when the first page fault occurs on address VA.
 	// TODO: VA is available when calling this function.
+	bool has_lock = false;
+	bool success = false;
+	has_lock = check_file_lock_holder();
+	// size_t *buf = (size_t*)aux;
+	struct load_lazy_info *lazy_info = (struct load_lazy_info *) aux;
+	// size_t page_read_bytes = *(buf);
+	// size_t page_zero_bytes = *(buf+1);
+	// size_t file = *(buf+2);	
 
-	size_t *buf = (size_t*)aux;
-	size_t page_read_bytes = *(buf);
-	size_t page_zero_bytes = *(buf+1);
-	size_t file = *(buf+2);
-
-	// printf("first = %d\n",page_read_bytes);
-	// printf("second = %d\n",page_zero_bytes);
-
-	if (file_read(file, page, page_read_bytes) != (int)page_read_bytes)
-	{
+	if(!has_lock){file_lock_acquire();}
+	file_seek(lazy_info->file,lazy_info->offset);
+	if(!has_lock){file_lock_release();}
+	// file_lock_release();
+	// printf("enter lazy_load_segment\n");
+	// printf("=================load=================\n");
+	// printf("read_bytes = %d\n",lazy_info->page_read_bytes);
+	// printf("zero_bytes = %d\n",lazy_info->page_zero_bytes);
+	// printf("file pointer = %d\n",lazy_info->file);
+	// printf("file offset= %d\n",lazy_info->offset);
+	// printf("file's pos= %d\n",lazy_info->file->pos);
+	// printf("======================================\n");
+	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
+	// printf("page va = %X\n",page->va);
+	// printf("%d\n",page->frame->kva);
+	// printf("%d\n",page->frame->kva + lazy_info->page_read_bytes);
+	if(!has_lock){file_lock_acquire();}
+	if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
+	{ 
+		if(!has_lock){file_lock_release();}
 		palloc_free_page(page);
 		return false;
 	}
+	if(!has_lock){file_lock_release();}
 
-	memset(page + page_read_bytes, 0, page_zero_bytes);
+	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
 
+	if(lazy_info->writable == 0){
+		success = pml4_set_page(thread_current()->pml4,page->va,page->frame->kva,false);
+		if(!success){
+			return false;
+		}
+	}
+
+	// printf("page->frame->kva = %X\n",page->frame->kva);
+	// printf("page->va = %X\n",page->va);
+	// printf("writable = %X\n",page->writeable);
+	// printf("file offffffset %d\n",lazy_info->file->pos);
+	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
+	//! free!!
+	// free(lazy_info);
 	return true;
 }
 
@@ -767,9 +794,11 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT(pg_ofs(upage) == 0);
 	ASSERT(ofs % PGSIZE == 0);
 
-	size_t bytes[3];
-
 	file_seek(file, ofs);
+	off_t offset = file->pos;
+
+	// size_t bytes[3];
+
 	while (read_bytes > 0 || zero_bytes > 0)
 	{
 		/* Do calculate how to fill this page.
@@ -784,14 +813,37 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
 		// printf("page_read_bytes = %d\n",page_read_bytes);
 		// printf("page_zero_bytes = %d\n",page_zero_bytes);
+		//! free!!
+		struct load_lazy_info * lazy_info = (struct load_lazy_info*)malloc(sizeof(struct load_lazy_info));
 
-		bytes[0] = page_read_bytes;
-		bytes[1] = page_zero_bytes;
-		bytes[2] = file;
+		lazy_info->page_read_bytes = 0;
+		lazy_info->page_zero_bytes = 0;
+
+		lazy_info->page_read_bytes = page_read_bytes;
+		lazy_info->page_zero_bytes = page_zero_bytes;
+		lazy_info->offset =	 offset;
+		lazy_info->writable = writable;
+	
+		// printf("offset !!!!! =%d\n",offset);
+		lazy_info->file = file;
+		// printf("=================save=================\n");
+		// printf("page_zero =  %d\n",lazy_info->page_zero_bytes);
+		// printf("page_read =  %d\n",lazy_info->page_read_bytes);
+		// printf("file's offset =  %d\n",offset);
+		// printf("file's poss = %d\n",file->pos);
+		
+
+		// printf("offset !!!!! =%d\n",offset);
+
+		// bytes[0] = page_read_bytes;
+		// bytes[1] = page_zero_bytes;
+		// bytes[2] = file;
 
 		// TODO: Set up aux to pass information to the lazy_load_segment.
 
-		void *aux = bytes;
+		void *aux = lazy_info;
+
+		// printf("vm_allock_page before %d\n",upage);
 		if (!vm_alloc_page_with_initializer(VM_ANON, upage,
 											writable, lazy_load_segment, aux))
 											{
@@ -801,9 +853,14 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
+
+		// printf("read_byte = %d\n",read_bytes);
+		// printf("zero_byte = %d\n",zero_bytes);
+		// printf("======================================\n");
+
 		upage += PGSIZE;
+		offset += page_read_bytes;
 	}
-	// printf("end load_segment\n");
 	return true;
 }
 
@@ -812,23 +869,20 @@ static bool
 setup_stack(struct intr_frame *if_)
 {
 	bool success = false;
-	void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
+	void *stack_bottom_p = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
+	// printf("enter setup_stack!!!\n");
 
 	//TODO: Map the stack on stack_bottom and claim the page immediately.
 	// TODO: If success, set the rsp accordingly.
 	// TODO: You should mark the page is stack.
 	/* TODO: Your code goes here */
 
-	// struct thread *t = thread_current();
-	// bool writable = t->spt.page->anon.writable;
-	// uint8_t *kpage,*upage;
-	// kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-	// upage = ((uint8_t *)USER_STACK) - PGSIZE;
+	struct thread *t = thread_current();
+	t->spt.stack_bottom = stack_bottom_p;
+	vm_claim_page(stack_bottom_p);
 
-	// success =(pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, writable));
-	// if_->rsp = USER_STACK;
-
-	return success;
+	if_->rsp = USER_STACK;
+	return true;
 }
 #endif /* VM */
 
@@ -868,7 +922,6 @@ void copy_fd_list(struct thread *parent, struct thread *child)
 //* 현재스레드의 fd_list clear
 void clear_fd_list()
 {
-
 	struct list *fd_list;
 	struct fd *delete_fd;
 
@@ -894,7 +947,6 @@ void clear_fd_list()
 
 void del_child_info()
 {
-
 	struct child_info *tep;
 	struct thread *parent = thread_current()->parent_thread;
 	struct list *children_list = &parent->children_list;

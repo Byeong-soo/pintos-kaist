@@ -19,7 +19,7 @@ get_boundary_area (void)
     p += 4096;
   return p;
 }
-
+ 
 /* Returns a copy of SRC split across the boundary between two
    pages. */
 char *

@@ -19,6 +19,7 @@
 #include "../include/userprog/process.h"
 
 #include "userprog/process.h"
+#include "threads/mmu.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -137,8 +138,11 @@ pid_t syscall_fork(struct intr_frame *f)
 {
 	char *thread_name = f->R.rdi;
 	int return_value;
+	// printf("welecome in fork\n");
 	return_value = process_fork(thread_name, f);
+	// printf("fork return_value %d\n",return_value);
 	f->R.rax = return_value;
+	return return_value;
 }
 
 // exec func parameter : const char *cmd_line
@@ -171,7 +175,7 @@ int syscall_wait(struct intr_frame *f)
 {
 	int pid = f->R.rdi;
 	struct child_info *child_info = search_children_list(pid);
-
+	// printf("i(%d) will wait %d\n",thread_current()->tid,pid);
 	if (child_info == NULL)
 	{
 		f->R.rax = -1;
@@ -193,6 +197,7 @@ int syscall_wait(struct intr_frame *f)
 
 	list_remove(&child_info->elem);
 	free(child_info);
+	// printf("end_wait\n");
 	return return_value;
 }
 
@@ -231,21 +236,26 @@ bool syscall_remove(struct intr_frame *f)
 
 // open func parameter : const char *file
 int syscall_open(struct intr_frame *f)
-{
+{	
+	// printf("ptr %X \n",f->R.rdi);
 	check_addr(f->R.rdi);
 	struct list *fd_list;
 
-	if (thread_current()->fd_count > 20)
-	{
+	if(f->R.rdi == NULL){
 		f->R.rax = -1;
-		return -1;
+		return;
 	}
+	// if (thread_current()->fd_count > 20)
+	// {
+	// 	f->R.rax = -1;
+	// 	return -1;
+	// }
 
 	fd_list = &thread_current()->fd_list;
 
-	// lock_acquire(&filesys_lock);
+	lock_acquire(&filesys_lock);
 	struct file *open_file = filesys_open(f->R.rdi);
-	// lock_release(&filesys_lock);
+	lock_release(&filesys_lock);
 
 	if (open_file == NULL)
 	{
@@ -263,7 +273,6 @@ int syscall_open(struct intr_frame *f)
 
 	f->R.rax = fd->value;
 	return fd->value;
-	return 0;
 }
 
 // filesize func parameter : int fd
@@ -284,8 +293,40 @@ int syscall_filesize(struct intr_frame *f)
 
 // read func parameter : int fd, void *buffer, unsigned size
 int syscall_read(struct intr_frame *f)
-{
-	check_addr(f->R.rsi);
+{	
+	struct thread* t = thread_current();
+	struct page * page;
+	// print_values(f,0);
+	// printf("is user = %d\n",is_user_vaddr(pg_round_down(f->R.rsi)));
+	// printf("is user = %d\n",USER_STACK > f->R.rsi);
+	// printf("buffer %X\n",f->R.rsi);
+	// printf("kern_base = %X\n",KERN_BASE);
+	// printf("USER_STACK = %X\n",USER_STACK);
+	// printf("testing %X\n",testing);
+
+	page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
+	// if (is_kernel_vaddr((f->R.rsi)) || pml4_get_page(t->pml4, f->R.rsi) == NULL)
+
+	// printf("int fd = %d\n",f->R.rdi);
+	// printf("read rsi = %X\n",f->R.rsi);
+	// printf("stack bottom = %X\n",t->spt.stack_bottom);
+	// printf("page va = %X\n",page->va);
+	// printf("page writable = %d\n",page->writeable);
+	// if(page == NULL || page->writeable == 0){
+	if(page == NULL){
+		syscall_abnormal_exit(-1);
+	}
+
+	// if((f->R.rsi < t->spt.stack_bottom || f->R.rsi > USER_STACK)){
+	// 	syscall_abnormal_exit(-1);
+	// }
+
+	// if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
+	// {
+	// 	syscall_abnormal_exit(-1);
+	// }
+
+	// check_addr(f->R.rsi);
 	int fd_value, size;
 	fd_value = f->R.rdi;
 	char *buf = f->R.rsi;
@@ -304,13 +345,37 @@ int syscall_read(struct intr_frame *f)
 	return_value = file_read(read_fd->file, buf, size);
 	lock_release(&filesys_lock);
 	f->R.rax = return_value;
+	// printf("end_syscall_read\n");
 	return return_value;
 }
 
 // write func parameter : int fd, const void *buffer, unsigned size
 void syscall_write(struct intr_frame *f)
 {
-	check_addr(f->R.rsi);
+	struct thread * t = thread_current();
+	struct page * page;
+	// if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
+	// {
+	// 	syscall_abnormal_exit(-1);
+	// }
+	// printf("\nwrite rsi = %d\n\n",f->R.rsi);
+	page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
+	// if( page == NULL || page->writeable == 1){
+	if(page == NULL || page->writeable == 0){
+		syscall_abnormal_exit(-1);
+	}
+
+
+	
+	// if(f->R.rsi < t->spt.stack_bottom || f->R.rsi > USER_STACK){
+	// 	syscall_abnormal_exit(-1);
+	// }
+
+	if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
+	{
+		syscall_abnormal_exit(-1);
+	}
+	// check_addr(f->R.rsi);
 	int fd_value = f->R.rdi;
 	char *buf = f->R.rsi;
 	int size = f->R.rdx;
@@ -455,9 +520,19 @@ bool check_ptr_address(struct intr_frame *f)
 }
 
 void check_addr(void *addr)
-{
+{	
+	// printf("check addr enter\n");
+	// printf("check addr = %X\n",addr);
 	struct thread *t = thread_current();
-	if (is_kernel_vaddr(addr) || pml4_get_page(t->pml4, addr) == NULL)
+	// if(pml4_get_page(t->pml4,addr) != NULL){
+	// 	return;
+	// }
+
+	// printf("is_user_vaddr = %d\n",is_user_vaddr(pg_round_down(addr)));
+	// printf("USERSTACK  = %d\n",USER_STACK > addr);
+
+	if (is_kernel_vaddr((addr)) || pml4_get_page(t->pml4, addr) == NULL)
+	// if (!(is_user_vaddr(pg_round_down(addr)) && USER_STACK > addr))
 	{
 		syscall_abnormal_exit(-1);
 	}
@@ -495,4 +570,10 @@ void file_lock_acquire()
 void file_lock_release()
 {
 	lock_release(&filesys_lock);
+}
+
+bool check_file_lock_holder(){
+	if(filesys_lock.holder == thread_current())
+		return true;
+	return false;
 }

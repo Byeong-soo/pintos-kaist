@@ -49,9 +49,13 @@ uninit_initialize (struct page *page, void *kva) {
 
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
-	void *aux = uninit->aux;
-
+	void *aux = page->uninit.aux;
+	page->vm_type = VM_UNINIT;
 	// TODO: You may need to fix this function.
+	if(uninit->page_initializer == NULL || uninit->init == NULL){
+		return true;
+	}
+
 	return uninit->page_initializer (page, uninit->type, kva) &&
 		(init ? init (page, aux) : true);
 }
