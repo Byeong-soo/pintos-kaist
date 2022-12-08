@@ -85,6 +85,10 @@ unsigned syscall_tell(struct intr_frame *f);
 // close func larameter : int fd
 void syscall_close(struct intr_frame *f);
 
+void * syscall_mmap(struct intr_frame *f);
+
+void syscall_munmap(struct intr_frame *f);
+
 // 공용 함수
 
 void syscall_abnormal_exit(short exit_code);
@@ -110,6 +114,8 @@ struct syscall_func syscall_func[] = {
 	{SYS_SEEK, syscall_seek},
 	{SYS_TELL, syscall_tell},
 	{SYS_CLOSE, syscall_close},
+	{SYS_MMAP, syscall_mmap},
+	{SYS_MUNMAP, syscall_munmap},
 };
 
 /* The main system call interface */
@@ -295,16 +301,18 @@ int syscall_filesize(struct intr_frame *f)
 int syscall_read(struct intr_frame *f)
 {	
 	struct thread* t = thread_current();
-	struct page * page;
+	struct page * start_page,*end_page;
 	// print_values(f,0);
 	// printf("is user = %d\n",is_user_vaddr(pg_round_down(f->R.rsi)));
 	// printf("is user = %d\n",USER_STACK > f->R.rsi);
 	// printf("buffer %X\n",f->R.rsi);
+	// printf("stack bottom = %X\n",thread_current()->spt.stack_bottom);
 	// printf("kern_base = %X\n",KERN_BASE);
 	// printf("USER_STACK = %X\n",USER_STACK);
 	// printf("testing %X\n",testing);
 
-	page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
+	start_page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
+	end_page = spt_find_page(&t->spt,pg_round_down(f->R.rsi + f->R.rdx -1));
 	// if (is_kernel_vaddr((f->R.rsi)) || pml4_get_page(t->pml4, f->R.rsi) == NULL)
 
 	// printf("int fd = %d\n",f->R.rdi);
@@ -313,7 +321,7 @@ int syscall_read(struct intr_frame *f)
 	// printf("page va = %X\n",page->va);
 	// printf("page writable = %d\n",page->writeable);
 	// if(page == NULL || page->writeable == 0){
-	if(page == NULL || page->writable == 0){
+	if((start_page == NULL || end_page == NULL )|| start_page->writable == 0){
 		syscall_abnormal_exit(-1);
 	}
 
@@ -353,15 +361,16 @@ int syscall_read(struct intr_frame *f)
 void syscall_write(struct intr_frame *f)
 {
 	struct thread * t = thread_current();
-	struct page * page;
+	struct page * start_page, *end_page;
 	// if (!(is_user_vaddr(pg_round_down(f->R.rsi)) && USER_STACK > f->R.rsi))
 	// {
 	// 	syscall_abnormal_exit(-1);
 	// }
 	// printf("\nwrite rsi = %d\n\n",f->R.rsi);
-	page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
+	start_page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
+	end_page = spt_find_page(&t->spt,pg_round_down(f->R.rsi + f->R.rdx));
 	// if( page == NULL || page->writeable == 1){
-	if(page == NULL || page->writable == 0){
+	if((start_page == NULL || end_page == NULL ) || start_page->writable == 0){
 		syscall_abnormal_exit(-1);
 	}
 
@@ -462,6 +471,33 @@ void syscall_close(struct intr_frame *f)
 	free(find_fd);
 	lock_release(&filesys_lock);
 }
+// mmap (void *addr, size_t length, int writable, int fd, off_t offset)
+void * syscall_mmap(struct intr_frame *f){
+	void* addr = f->R.rdi;
+	size_t filesize = f->R.rsi;
+	int writable = f->R.rdx;
+	int fd_value = f->R.r10;
+	off_t offset = f->R.r9;
+
+
+	struct fd *read_fd = find_matched_fd(fd_value);
+	if (read_fd == NULL)
+	{
+		f->R.rax = -1;
+		return -1;
+	}
+
+	f->R.rax = do_mmap(addr,filesize,writable,read_fd->file,offset);
+	return addr;
+}
+
+void syscall_munmap(struct intr_frame *f){
+	void * mmap = f->R.rdi;
+	
+	do_munmap(mmap);
+}
+
+
 
 // 공용 함수
 
@@ -475,7 +511,7 @@ void syscall_abnormal_exit(short exit_code)
 void print_values(struct intr_frame *f, int type)
 {
 	printf("call_num   %d\n", f->R.rax);
-	printf("rdi        %d\n", f->R.rdi);
+	printf("rdi        %X\n", f->R.rdi);
 	if (type == 0)
 	{
 		printf("rsi        %d\n", f->R.rsi);

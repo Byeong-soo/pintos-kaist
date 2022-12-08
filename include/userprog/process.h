@@ -60,13 +60,14 @@ struct fork_info
 	struct intr_frame *if_;
 };
 
-struct load_lazy_info
+struct load_info
 {
-	uint32_t page_read_bytes;
-	uint32_t page_zero_bytes;
+	uint64_t page_read_bytes;
+	uint64_t page_zero_bytes;
 	off_t offset;
 	bool writable;
 	struct file *file;
+	uint64_t va;
 };
 
 tid_t process_create_initd (const char *file_name);

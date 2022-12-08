@@ -31,7 +31,6 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &anon_ops;
 	struct anon_page *anon_page = &page->anon;
-	page->vm_type = VM_ANON;
 	return true;
 }
 
@@ -51,4 +50,11 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+
+	if(page->uninit.aux != NULL){
+		free(page->uninit.aux);
+	}
+	if(page->frame != NULL){
+		free(page->frame);
+	}
 }

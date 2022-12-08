@@ -55,7 +55,8 @@ struct page {
 
 	/* Your implementation */
 	bool writable;
-	enum vm_type vm_type;
+	bool is_stack;
+	struct list_elem elem;
 	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */

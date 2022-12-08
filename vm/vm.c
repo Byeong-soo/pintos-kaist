@@ -76,32 +76,24 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			goto err;
 		}
 
-		// printf("uninit_page size = %d\n",sizeof(struct uninit_page));
-		// printf("kpage = %x\n",kpage);
-		// if (kpage == NULL){
-		// 	return false;
-		// }
-
-
-
-		// list_push_back(&spt->page_list,&new_page->elem);
-
-		// spt->type = type;
 		if(type == VM_ANON){
 			uninit_new(new_page,upage,init,type,aux,anon_initializer);
-			// printf("anon!!!\n");
-
+			new_page->is_stack = false;
+		}else if(type == VM_ANON | VM_MARKER_0){
+			uninit_new(new_page,upage,init,type,aux,anon_initializer);
+			new_page->is_stack = true;
 		}else if(type == VM_FILE){
-			struct file_page file;
+			uninit_new(new_page,upage,init,type,aux,file_backed_initializer);
+			new_page->is_stack = false;
 		}
-
+		
 		new_page->writable = writable;
 		// }else if(type == VM_MARKER_0){
 		// 	uninit_new(new_page,upage,,type,NULL,NULL);
 		// }
 
 		// printf("new_page va = %X\n",upage);
-		// printf("new_page writable = %d\n",new_page->writeable);
+		// printf("new_page writable = %d\n",new_page->writable);
 		//! TODO 오류 처리
 		spt_insert_page(spt,new_page);
 		// printf("hi!!!!!!!!!!!!@@@@@@@@@@@@@@@\n");
@@ -125,9 +117,13 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 
 	while (page_list_elem != list_end(page_list))
 	{
-		struct page_table_node * find_page = list_entry(page_list_elem,struct page_table_node, elem);
-		if(find_page->page->va == va){
-			return find_page->page;
+		// struct page_table_node * find_page = list_entry(page_list_elem,struct page_table_node, elem);
+		struct page * find_page = list_entry(page_list_elem,struct page, elem);
+		// if(find_page->page->va == va){
+		if(find_page->va == va){
+			// printf("find va = %X\n",va);
+			// printf("tread current = %d\n",thread_current()->tid);
+			return find_page;
 		}
 		page_list_elem = list_next(page_list_elem);
 	}
@@ -140,15 +136,15 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	int succ = false;
 	/* TODO: Fill this function. */
 
-	struct page_table_node* new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
+	// struct page_table_node* new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
 
-	if(new_page_node == NULL || page == NULL){
-		free(new_page_node);
+	// if(new_page_node == NULL || page == NULL){
+	if(page == NULL){
 		return false;
 	}
-
-	new_page_node->page = page;
-	list_push_front(&spt->page_list,&new_page_node->elem);
+	// new_page_node->page = page;
+	// printf("push va = %X\n",page->va);
+	list_push_front(&spt->page_list,&page->elem);
 	return true;
 }
 
@@ -163,12 +159,12 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 
 	while (page_list_elem != list_end(page_list))
 	{
-		struct page_table_node * find_page_node = list_entry(page_list_elem,struct page_table_node, elem);
+		// struct page_table_node * find_page_node = list_entry(page_list_elem,struct page_table_node, elem);
+		struct page * find_page = list_entry(page_list_elem,struct page, elem);
 		
-		if(find_page_node->page == page){
+		if(find_page == page){
 			list_remove(page_list_elem);
 			vm_dealloc_page (page);
-			free(find_page_node);
 			return true;
 		}
 		page_list_elem = list_next(page_list_elem);
@@ -213,7 +209,7 @@ vm_get_frame (void) {
 	frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
 	frame->page = NULL;
 
-	if(frame == NULL){
+	if(frame == NULL || frame->kva == NULL){
 		PANIC("TODO");
 	}
 	
@@ -234,7 +230,12 @@ vm_stack_growth (void *addr) {
 	do
 	{
 		cur_thread_bottom = cur_thread_bottom - PGSIZE;
+		vm_alloc_page(VM_ANON | VM_MARKER_0,cur_thread_bottom,true);
 		success = vm_claim_page(cur_thread_bottom);
+		if(!success){
+			cur_thread_bottom = cur_thread_bottom + PGSIZE;
+			break;
+		}
 	} while (cur_thread_bottom != addr);
 	
 	t->spt.stack_bottom = cur_thread_bottom;
@@ -259,7 +260,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	uint64_t addrs = pg_round_down(addr);
 
 	// printf("stack bottom = %X\n",spt->stack_bottom);
-	// printf("addr = %X\n",addr);
+	// printf("addr = %X\n",addrs);
 	// printf("USER STACK - addr = %X\n",USER_STACK - (uint64_t)addr);
 	// printf("rsp = %X\n",f->rsp);
 	// printf("USER STACK - rsp = %X\n",USER_STACK - f->rsp);
@@ -268,17 +269,17 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	// TODO: Validate the fault
 
 	page = spt_find_page(spt,addrs);
-
+	// USER_STACK
 	if(page == NULL){
 		if(user){
 			// if(spt->stack_bottom - PGSIZE < addr && addr < spt->stack_bottom){
 				// printf("addr pg_down = %X\n",addrs);
 				// printf("USER_STACK-PGSIZE - addr = %X\n",(USER_STACK-PGSIZE) - addrs);
-			if((spt->stack_bottom > f->rsp) && ((USER_STACK-PGSIZE) - addrs) <= 0x10000){
+			if((spt->stack_bottom > f->rsp) && ((USER_STACK-PGSIZE) - addrs) <= 0x1000000){
 				vm_stack_growth(addrs);
 				return true; 
 			}
-			// printf("end!!!!!!\n");
+			// printf("thread current = %d\n",thread_current()->tid);
 			thread_current()->exit_code = -1;
 			thread_exit();
 		}
@@ -308,13 +309,18 @@ vm_claim_page (void *va) {
 	struct thread* t = thread_current();
 	// TODO: Fill this function
 	// page = (struct page*)malloc(sizeof(struct page));
-	// page->va = va;
-	
-	vm_alloc_page(VM_ANON,va,true);
+	// page->va = va; 
+	// vm_alloc_page(VM_ANON,va,true);
+	// page->is_stack = true;
+	// page->writable = true;
+
 	// vm_alloc_page(VM_MARKER_0,va,true);
 	page = spt_find_page(&t->spt,va);
-	page->vm_type = VM_MARKER_0;
+	// printf("page va^^^^^^ =%X\n",page->va);
+	// ASSERT(page == NULL);
+	// if(page.)
 	// vm_alloc_page(1,va,true);
+	// printf("page va = %X\n",page->va);
 	return vm_do_claim_page (page);
 }
 
@@ -322,32 +328,33 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 
-	// if(pml4_get_page(thread_current()->pml4, page->va) != NULL){
-	// 	printf("pml4_get_page is not null!!!!!!!!!!!!!!!!!!!!!\n");
-	// 	return false;
-	// }
+	if(pml4_get_page(thread_current()->pml4, page->va) != NULL){
+		// printf("pml4_get_page is not null!!!!!!!!!!!!!!!!!!!!!\n");
+		return false;
+	}
 	// printf("pml4_get_page is NULL\n");
 
 	struct frame *frame = vm_get_frame ();
-	// printf("frame kva = %X\n",frame->kva);
+
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
 	// TODO: Insert page table entry to map page's VA to frame's PA.
 	bool success = true;
+	// hex_dump(page,page,sizeof(struct page),true);
+	// printf("!!!!!!!!!!!!!!!!page va before swap = %X\n",page->va);
 	// printf("page writable before swap = %d\n",page->writable);
-	// printf("page va before swap = %X\n",page->va);
-
-	success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,true);
+	// printf("frame kva = %lx\n",frame->kva);
+	success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,page->writable);
 	if(!success){
 		return false;
 	}
 
-	if(page->vm_type == VM_MARKER_0){
+	if(page->is_stack == true){
 		return true;
 	}
-
+	// printf("enter swap_in\n");
 	return swap_in (page, frame->kva);
 }
 
@@ -366,7 +373,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 
 	struct list *p_spt_list, *c_spt_list;
-	struct page_table_node * copy_page_node;
+	struct page * copy_page;
 	struct file *copy_file;
 
 	bool success = true;
@@ -382,53 +389,52 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	cur = list_begin(p_spt_list);
 	while (cur != list_end(p_spt_list))
 	{
-		copy_page_node = list_entry(cur, struct page_table_node, elem);
-		if(copy_page_node->page != NULL){
+		copy_page = list_entry(cur, struct page, elem);
+		if(copy_page != NULL){
 			// printf("copy spt\n");
 			// printf("copy va = %X\n",copy_page_node->page->va);
 
-			enum vm_type type = copy_page_node->page->uninit.type;
-			void * va = copy_page_node->page->va;
-			vm_initializer *init = copy_page_node->page->uninit.init;
-			void *aux = copy_page_node->page->uninit.aux;
+			enum vm_type type = copy_page->uninit.type;
+			void * va = copy_page->va;
+			vm_initializer *init = copy_page->uninit.init;
+			void *aux = copy_page->uninit.aux;
+			bool is_stack = copy_page->is_stack;
 
 			struct page * new_page = (struct page*)malloc(sizeof(struct page));
-			struct load_lazy_info * new_aux = (struct load_lazy_info*)malloc(sizeof(struct load_lazy_info));
+			struct load_info * new_aux = (struct load_info*)malloc(sizeof(struct load_info));
 
 			if(aux != NULL){
-				memcpy(new_aux,aux,sizeof(struct load_lazy_info));
+				memcpy(new_aux,aux,sizeof(struct load_info));
 			}
 			if(new_page == NULL){
 				return false;
 			}
 
-
 			if(type == VM_ANON){
 				uninit_new(new_page,va,init,type,new_aux,anon_initializer);		
+			}else if(type == VM_ANON | VM_MARKER_0){
+				uninit_new(new_page,va,NULL,type,NULL,anon_initializer);
 			}else if(type == VM_FILE){
 				struct file_page file;
 			}
 
+			// printf("origin page va= %X\n",copy_page_node->page->va);
+			// printf("copy page va= %X\n",new_page->va);
+			// printf("origin frame kva = %X\n",copy_page_node->page->frame->kva);
 			//! TODO 오류 처리
 			spt_insert_page(dst,new_page);
 
-			new_page->writable = copy_page_node->page->writable;
-			
-			if(copy_page_node->page->frame != NULL){
+			new_page->writable = copy_page->writable;
+			new_page->is_stack = is_stack;
+			if(copy_page->frame != NULL){
 				vm_do_claim_page(new_page);
-				memcpy(new_page->frame->kva,copy_page_node->page->frame->kva,PGSIZE);
+				memcpy(new_page->frame->kva,copy_page->frame->kva,PGSIZE);
 			}
+			// printf("copy frame kva = %X\n",new_page->frame->kva);
 
 			// printf("in copy writable = %d\n",copy_page_node->page->writable);
 			// printf("copyed new page va = %X\n",new_page->va);
 			// printf("in copyed new page writable = %d\n",new_page->writable);
-			// if(copy_page_node->page->is_stack == VM_MARKER_0){
-			// memcpy(new_page->va,copy_page_node->page->va,PGSIZE);
-			// }			
-			// printf("origin frame kva = %X\n",copy_page_node->page->frame->kva);
-			// printf("copy frame kva = %X\n",new_page->frame->kva);
-			// printf("origin page va= %X\n",copy_page_node->page->va);
-			// printf("copy page va= %X\n",new_page->va);
 			// printf("result success = %d\n",success);
 		}
 		cur = list_next(cur);
@@ -444,7 +450,6 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	// TODO: writeback all the modified contents to the storage.
 
 	struct list* delete_list = &spt->page_list;	
-	struct page_table_node * delete_page_node;
 	struct list_elem * delete_elem = list_begin(delete_list);
 	struct page * delete_page;
 	struct frame * delete_frame;
@@ -456,14 +461,15 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 
 	while (delete_elem != list_end(delete_list))
 	{	
-		delete_page_node = list_entry(delete_elem, struct page_table_node, elem);
-		delete_page = delete_page_node->page;
+		// delete_page_node = list_entry(delete_elem, struct page_table_node, elem);
+		delete_page = list_entry(delete_elem, struct page, elem);
 		delete_elem = list_remove(delete_elem);
-		free(delete_page->uninit.aux);
-		if(delete_page->frame != NULL){
-			free(delete_page->frame);
-		}
-		free(delete_page);
-		free(delete_page_node);
+
+		vm_dealloc_page(delete_page);
+		// free(delete_page->uninit.aux);
+		// if(delete_page->frame != NULL){
+		// 	free(delete_page->frame);
+		// }
+		// free(delete_page);
 	}
 }

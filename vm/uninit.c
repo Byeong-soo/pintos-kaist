@@ -50,7 +50,6 @@ uninit_initialize (struct page *page, void *kva) {
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = page->uninit.aux;
-	page->vm_type = VM_UNINIT;
 	// TODO: You may need to fix this function.
 	if(uninit->page_initializer == NULL || uninit->init == NULL){
 		return true;
@@ -69,4 +68,11 @@ uninit_destroy (struct page *page) {
 	struct uninit_page *uninit UNUSED = &page->uninit;
 	// TODO: Fill this function.
 	// TODO: If you don't have anything to do, just return.
+
+	if(page->uninit.aux != NULL){
+		free(page->uninit.aux);
+	}
+	if(page->frame != NULL){
+		free(page->frame);
+	}
 }
