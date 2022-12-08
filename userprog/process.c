@@ -374,11 +374,6 @@ void process_exit(void)
 	if (curr->pml4 > KERN_BASE)
 		printf("%s: exit(%d)\n", curr->name, curr->exit_code);
 
-	if (thread_current()->exec_file != NULL)
-	{
-		file_close(thread_current()->exec_file);
-		thread_current()->exec_file = NULL;
-	}
 	process_cleanup();
 	sema_up(&parent->wait_sema);
 }
@@ -388,6 +383,12 @@ static void
 process_cleanup(void)
 {
 	struct thread *curr = thread_current();
+
+	if (thread_current()->exec_file != NULL)
+	{
+		file_close(thread_current()->exec_file);
+		thread_current()->exec_file = NULL;
+	}
 
 #ifdef VM
 	supplemental_page_table_kill(&curr->spt);

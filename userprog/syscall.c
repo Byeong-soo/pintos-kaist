@@ -397,11 +397,6 @@ void syscall_write(struct intr_frame *f)
 	int return_value;
 	struct fd * write_fd = find_matched_fd(fd_value);
 
-	if (write_fd == NULL)
-	{
-		f->R.rax = -1;
-		return -1;
-	}
 
 	if (write_fd == NULL || write_fd->file->deny_write)
 	{
@@ -493,7 +488,7 @@ void * syscall_mmap(struct intr_frame *f){
 
 void syscall_munmap(struct intr_frame *f){
 	void * mmap = f->R.rdi;
-	
+
 	do_munmap(mmap);
 }
 
