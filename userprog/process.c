@@ -755,7 +755,8 @@ lazy_load_segment(struct page *page, void *aux)
 
 	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
 
-	if(lazy_info->writable == 0){
+	// if(lazy_info->writable == 0){
+	if(page->writable == 0){
 		success = pml4_set_page(thread_current()->pml4,page->va,page->frame->kva,false);
 		if(!success){
 			return false;
@@ -764,7 +765,7 @@ lazy_load_segment(struct page *page, void *aux)
 
 	// printf("page->frame->kva = %X\n",page->frame->kva);
 	// printf("page->va = %X\n",page->va);
-	// printf("writable = %X\n",page->writeable);
+	// printf("writable = %X\n",page->writable);
 	// printf("file offffffset %d\n",lazy_info->file->pos);
 	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
 	//! free!!

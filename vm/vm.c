@@ -89,12 +89,13 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// spt->type = type;
 		if(type == VM_ANON){
 			uninit_new(new_page,upage,init,type,aux,anon_initializer);
-			new_page->writeable = writable;
 			// printf("anon!!!\n");
 
 		}else if(type == VM_FILE){
 			struct file_page file;
 		}
+
+		new_page->writable = writable;
 		// }else if(type == VM_MARKER_0){
 		// 	uninit_new(new_page,upage,,type,NULL,NULL);
 		// }
@@ -262,7 +263,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	// printf("USER STACK - addr = %X\n",USER_STACK - (uint64_t)addr);
 	// printf("rsp = %X\n",f->rsp);
 	// printf("USER STACK - rsp = %X\n",USER_STACK - f->rsp);
-	// printf("writable = %d\n",write);
+	// printf("writable !!!!!= %d\n",write);
 	
 	// TODO: Validate the fault
 
@@ -287,6 +288,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	}
 	// TODO: Your code goes here
 	thread_current()->pre_pagefault_rsp = f->rsp;
+	// printf("writable !!!!_!!_!_!_!_= %d\n",page->writable);
 	// printf("enter vm_do_claim_page\n");
 	return vm_do_claim_page (page);
 }
@@ -334,6 +336,8 @@ vm_do_claim_page (struct page *page) {
 
 	// TODO: Insert page table entry to map page's VA to frame's PA.
 	bool success = true;
+	// printf("page writable before swap = %d\n",page->writable);
+	// printf("page va before swap = %X\n",page->va);
 
 	success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,true);
 	if(!success){
@@ -344,7 +348,6 @@ vm_do_claim_page (struct page *page) {
 		return true;
 	}
 
-	// printf("page writable\n",page->writeable);
 	return swap_in (page, frame->kva);
 }
 
@@ -384,11 +387,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			// printf("copy spt\n");
 			// printf("copy va = %X\n",copy_page_node->page->va);
 
-
-
 			enum vm_type type = copy_page_node->page->uninit.type;
 			void * va = copy_page_node->page->va;
-			bool writable = copy_page_node->page->writeable;
 			vm_initializer *init = copy_page_node->page->uninit.init;
 			void *aux = copy_page_node->page->uninit.aux;
 
@@ -398,7 +398,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			if(aux != NULL){
 				memcpy(new_aux,aux,sizeof(struct load_lazy_info));
 			}
-			new_page->writeable = writable;
 			if(new_page == NULL){
 				return false;
 			}
@@ -413,13 +412,16 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			//! TODO 오류 처리
 			spt_insert_page(dst,new_page);
 
+			new_page->writable = copy_page_node->page->writable;
+			
 			if(copy_page_node->page->frame != NULL){
 				vm_do_claim_page(new_page);
 				memcpy(new_page->frame->kva,copy_page_node->page->frame->kva,PGSIZE);
 			}
-			new_page->writeable = writable;
+
+			// printf("in copy writable = %d\n",copy_page_node->page->writable);
 			// printf("copyed new page va = %X\n",new_page->va);
-			// printf("copyed new page writable = %d\n",new_page->writeable);
+			// printf("in copyed new page writable = %d\n",new_page->writable);
 			// if(copy_page_node->page->is_stack == VM_MARKER_0){
 			// memcpy(new_page->va,copy_page_node->page->va,PGSIZE);
 			// }			

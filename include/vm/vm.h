@@ -54,7 +54,7 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
-	bool writeable;
+	bool writable;
 	enum vm_type vm_type;
 	
 	/* Per-type data are binded into the union.

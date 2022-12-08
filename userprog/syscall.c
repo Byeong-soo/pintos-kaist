@@ -313,7 +313,7 @@ int syscall_read(struct intr_frame *f)
 	// printf("page va = %X\n",page->va);
 	// printf("page writable = %d\n",page->writeable);
 	// if(page == NULL || page->writeable == 0){
-	if(page == NULL){
+	if(page == NULL || page->writable == 0){
 		syscall_abnormal_exit(-1);
 	}
 
@@ -361,7 +361,7 @@ void syscall_write(struct intr_frame *f)
 	// printf("\nwrite rsi = %d\n\n",f->R.rsi);
 	page = spt_find_page(&t->spt,pg_round_down(f->R.rsi));
 	// if( page == NULL || page->writeable == 1){
-	if(page == NULL || page->writeable == 0){
+	if(page == NULL || page->writable == 0){
 		syscall_abnormal_exit(-1);
 	}
 
