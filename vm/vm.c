@@ -54,7 +54,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	ASSERT (VM_TYPE(type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-
+	// printf("ininin initializer!!\n");
+	// printf("alloc va = %X\n",upage);
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
 		// printf("upage2 = %x\n",upage);
@@ -73,15 +74,20 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// printf("new_page writable = %d\n",writable);
 		// printf("new_page writable = %d\n",new_page->writeable);
 		if(new_page == NULL){
+			// printf("new_page NUL!!!\n");
 			goto err;
 		}
 
+		// printf("befoe ififif\n");
+		// printf("type = %d\n",type);
 		if(type == VM_ANON){
 			uninit_new(new_page,upage,init,type,aux,anon_initializer);
 			new_page->is_stack = false;
-		}else if(type == VM_ANON | VM_MARKER_0){
+			// printf("in anon\n");
+		}else if(type == VM_STACK){
 			uninit_new(new_page,upage,init,type,aux,anon_initializer);
 			new_page->is_stack = true;
+			// printf("in stack\n");
 		}else if(type == VM_FILE){
 			uninit_new(new_page,upage,init,type,aux,file_backed_initializer);
 			new_page->is_stack = false;
@@ -230,7 +236,7 @@ vm_stack_growth (void *addr) {
 	do
 	{
 		cur_thread_bottom = cur_thread_bottom - PGSIZE;
-		vm_alloc_page(VM_ANON | VM_MARKER_0,cur_thread_bottom,true);
+		vm_alloc_page(VM_STACK,cur_thread_bottom,true);
 		success = vm_claim_page(cur_thread_bottom);
 		if(!success){
 			cur_thread_bottom = cur_thread_bottom + PGSIZE;
@@ -351,7 +357,7 @@ vm_do_claim_page (struct page *page) {
 		return false;
 	}
 
-	if(page->is_stack == true){
+	if(page->is_stack == true || page->uninit.type == VM_FILE){
 		return true;
 	}
 	// printf("enter swap_in\n");
@@ -412,7 +418,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 			if(type == VM_ANON){
 				uninit_new(new_page,va,init,type,new_aux,anon_initializer);		
-			}else if(type == VM_ANON | VM_MARKER_0){
+			}else if(type == VM_STACK){
 				uninit_new(new_page,va,NULL,type,NULL,anon_initializer);
 			}else if(type == VM_FILE){
 				struct file_page file;
@@ -464,6 +470,9 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 		// delete_page_node = list_entry(delete_elem, struct page_table_node, elem);
 		delete_page = list_entry(delete_elem, struct page, elem);
 		delete_elem = list_remove(delete_elem);
+		if(delete_page->uninit.type == VM_FILE){
+			do_munmap(delete_page->va);
+		}
 
 		vm_dealloc_page(delete_page);
 		// free(delete_page->uninit.aux);

@@ -886,7 +886,7 @@ setup_stack(struct intr_frame *if_)
 	struct thread *t = thread_current();
 	t->spt.stack_bottom = stack_bottom_p;
 
-	vm_alloc_page(VM_ANON | VM_MARKER_0,stack_bottom_p,true);
+	vm_alloc_page(VM_STACK,stack_bottom_p,true);
 	vm_claim_page(stack_bottom_p);
 
 	if_->rsp = USER_STACK;

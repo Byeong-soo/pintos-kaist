@@ -8,7 +8,7 @@ struct anon_page {
     vm_initializer *init;
 	enum vm_type type;
 	void *aux;
-    bool writable;
+
 };
 
 void vm_anon_init (void);

@@ -474,13 +474,15 @@ void * syscall_mmap(struct intr_frame *f){
 	int fd_value = f->R.r10;
 	off_t offset = f->R.r9;
 
+	struct page * page;
 
 	struct fd *read_fd = find_matched_fd(fd_value);
-	if (read_fd == NULL)
-	{
-		f->R.rax = -1;
-		return -1;
+
+	if( read_fd == NULL || filesize == NULL || addr == NULL){
+		f->R.rax = 0;
+		return  0;
 	}
+
 
 	f->R.rax = do_mmap(addr,filesize,writable,read_fd->file,offset);
 	return addr;
