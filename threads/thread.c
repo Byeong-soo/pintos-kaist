@@ -488,7 +488,7 @@ init_thread(struct thread *t, const char *name, int priority)
 	list_init(&t->donations);
 
 	//* 2주차 추가
-	t->fd_count = 2;
+	t->fd_count = 3;
 	list_init(&t->fd_list);
 	list_init(&t->children_list);
 

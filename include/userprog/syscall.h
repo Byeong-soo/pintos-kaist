@@ -59,7 +59,7 @@ void check_addr(void * addr); // 할당받는 유저 메모리 영역인지 확�
 struct list_elem* find_elem_match_fd_value(int fd_value);
 void clear_fd_list();
 
-//struct fd * find_matched_fd(int fd_value);
+struct fd * find_matched_fd(int fd_value);
 
 
 

@@ -367,14 +367,16 @@ void process_exit(void)
 	struct thread *curr = thread_current();
 	struct thread *parent = thread_current()->parent_thread;
 
-	update_child_exit_code();
-	clear_children_list();
-	clear_fd_list();
 
 	if (curr->pml4 > KERN_BASE)
 		printf("%s: exit(%d)\n", curr->name, curr->exit_code);
 
 	process_cleanup();
+	
+	update_child_exit_code();
+	clear_children_list();
+	clear_fd_list();
+
 	sema_up(&parent->wait_sema);
 }
 
@@ -384,15 +386,16 @@ process_cleanup(void)
 {
 	struct thread *curr = thread_current();
 
+#ifdef VM
+	supplemental_page_table_kill(&curr->spt);
+#endif
+	
+
 	if (thread_current()->exec_file != NULL)
 	{
 		file_close(thread_current()->exec_file);
 		thread_current()->exec_file = NULL;
 	}
-
-#ifdef VM
-	supplemental_page_table_kill(&curr->spt);
-#endif
 
 	uint64_t *pml4;
 	/* Destroy the current process's page directory and switch back
@@ -902,7 +905,7 @@ void copy_fd_list(struct thread *parent, struct thread *child)
 
 	p_fd_list = &parent->fd_list;
 	c_fd_list = &child->fd_list;
-
+	child->fd_count = parent->fd_count;
 	if (list_empty(p_fd_list))
 	{
 		return;
@@ -920,7 +923,6 @@ void copy_fd_list(struct thread *parent, struct thread *child)
 			struct fd *new_fd = (struct fd *)malloc(sizeof(struct fd));
 			new_fd->file = copy_file;
 			new_fd->value = find_fd->value;
-			child->fd_count = parent->fd_count;
 			list_push_front(c_fd_list, &new_fd->elem);
 		}
 		cur = list_next(cur);

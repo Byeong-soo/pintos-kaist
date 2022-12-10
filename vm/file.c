@@ -4,6 +4,8 @@
 #include "threads/mmu.h"
 #include "userprog/process.h"
 #include <stdio.h>
+#include <string.h>
+#include "userprog/syscall.h"
 
 
 static bool file_backed_swap_in (struct page *page, void *kva);
@@ -21,16 +23,25 @@ static const struct page_operations file_ops = {
 /* The initializer of file vm */
 void
 vm_file_init (void) {
-
+	// PANIC("enter_file_init");
 }
 
 /* Initialize the file backed page */
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
-	page->operations = &file_ops;
 
+	vm_initializer * init = page->uninit.init;
+	struct load_info * load_info = page->uninit.aux;
+
+	page->operations = &file_ops;
 	struct file_page *file_page = &page->file;
+
+	file_page->init = init;
+	file_page->type = type;
+	file_page->aux = load_info;
+
+
 	return true;
 }
 
@@ -38,6 +49,8 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page = &page->file;
+
+	// PANIC("TODO");
 	return true;
 }
 
@@ -57,13 +70,11 @@ file_backed_destroy (struct page *page) {
 	}
 
 	if(page->frame != NULL){
-		free(page->frame->kva);
-		// pml4_clear_page(t->pml4,page->frame->kva);
+		// printf("page frame kva = %X\n",page->frame->kva);
+		// if(page->frame->kva != NULL){
+		// 	palloc_free_page(page->frame->kva);
+		// }
 		free(page->frame);
-	}
-
-	if(page->va != NULL){
-		free(page->va);
 	}
 }
 
@@ -74,41 +85,66 @@ do_mmap (void *addr, size_t length, int writable,
 
 	off_t return_value;
 	uint64_t start_va,end_va;
-	size_t check_offset = 0;
+	size_t check_offset = offset;
 	start_va = pg_round_down(addr);
 	end_va = pg_round_down(addr + length -1);
-
 	struct page *start_page,*end_page;
 
 	start_page = spt_find_page(&thread_current()->spt,start_va);
 	end_page = spt_find_page(&thread_current()->spt,end_va);
 
+	if(is_kernel_vaddr(start_va) || is_kernel_vaddr(end_va))
+		return NULL;
+ 
 	// printf("in mmap !!!!!\n");
-	// printf("mmap addr = %X\n",addr);
+	// printf("mmap offset = %X\n",offset);
+	file_lock_acquire();
+	size_t file_len = file_length(file);
+	file_lock_release();
+	// printf("mmap file length= %X\n",file_len);
+	// size_t origin_len = length;
+	// if(length > file_len){
+	// 	length = file_len;
+	// }
+
+
+
+
 
 	if(start_page == NULL || end_page == NULL){
 		
-		while (start_va < end_va + 4096)
+		while (start_va < end_va + PGSIZE)
 		{
 			if(!pml4_get_page(thread_current()->pml4,start_va)){
 				struct load_info * new_aux = (struct load_info*)malloc(sizeof(struct load_info));
-				new_aux->file = file;
+
+	
+
+				file_lock_acquire();
+				new_aux->file = file_reopen(file);
+				file_lock_release();
+				
 				new_aux->writable = writable;
 				new_aux->offset = check_offset;
-				new_aux->va = addr;		
-				new_aux->page_read_bytes = length;
+				new_aux->va = addr;
+				if(file_len < PGSIZE){
+					new_aux->page_read_bytes = file_len;
+				}else{
+					new_aux->page_read_bytes = PGSIZE;
+				}
 
-				// printf("offset = %d\n",offset);	
+				// printf("offset = %d\n",new_aux->offset);	
 				// printf("length = %d\n",length);	
 				vm_alloc_page_with_initializer(VM_FILE,start_va,writable,vm_file_init,new_aux);
-				check_offset += new_aux->page_read_bytes;
+				file_len -=PGSIZE;
+				check_offset += PGSIZE;
 			}
-			start_va += 4096;
+			start_va += PGSIZE;
 		}
 	}else{
 		return NULL;
 	}
-
+ 
 	file_lock_acquire();
 	file_seek(file,offset);
 	return_value = file_read(file,addr,length);
@@ -147,38 +183,43 @@ do_munmap (void *addr) {
 		return;
 	}
 	// printf("addr = %X\n",addr);
-	while (del_elem != list_tail(page_list))
+	while (del_elem != list_end(page_list))
 	{
 		// printf("addr = %X\n",addr);
 		page = list_entry(del_elem,struct page,elem);
-		struct load_info * new_aux = (struct load_info*)page->file.aux;
-		if(new_aux != NULL){
+		// printf("type!!! %d\n",page->uninit.type);
+		// printf("va!!!!! %X\n",page->va);
+		if(page->uninit.type == VM_FILE){
+			struct load_info * new_aux = (struct load_info *)page->file.aux;
+			// printf("!!!!!!!new_aux va = %X\n",new_aux->va);
+			// PANIC("HERE!!!!!");
 			// hex_dump(page,page,sizeof(struct page),true);
-			// printf("addr^^^ = %X\n",addr);
 			// printf("aux va %X\n",new_aux->va);
 			// printf("aux va %X\n",page->va);
 			if(new_aux->va == addr){
 				// printf("hi?\n");
-				if(pml4_is_dirty(t->pml4,page->va) || new_aux->writable){
+				// if(pml4_is_dirty(t->pml4,page->va) && new_aux->writable){
+				if(pml4_is_dirty(t->pml4,page->va) && page->writable){
 					// printf("read_byte = %d\n",new_aux->page_read_bytes);
 					// printf("offset = %d\n",new_aux->offset);
 					// printf("va = %X\n",new_aux->va);
 					
-					// printf("file %X\n",new_aux->file);
-					// printf("file length = %d\n",file_length(new_aux->file));
+					// printf("file %X , frame kva %X , read_byte %X , offset %X\n",new_aux->file,page->frame->kva,new_aux->page_read_bytes,new_aux->offset);
+					// printf("file length = %X \n",file_length(new_aux->file));
+					// printf("file = %d, file_length %X\n",file,file_length(file));
+					// printf("file length 124124= %d\n",new_aux->file->deny_write);
 					// hex_dump(page->frame->kva,page->frame->kva,4096,true);
-
+ 
 					file_lock_acquire();
-					// printf("deny_write = %d\n",new_aux->file->pos);
-					file_seek(new_aux->file,new_aux->offset);
-					// printf("file_pose = %d\n",new_aux->file->pos);
-					// printf("write byte = %d\n",file_write(new_aux->file,page->frame->kva,4096));
+					// printf("write value %d\n",file_write_at(new_aux->file,page->frame->kva,new_aux->page_read_bytes,new_aux->offset));
 					file_write_at(new_aux->file,page->frame->kva,new_aux->page_read_bytes,new_aux->offset);
-					// file_write_at(new_aux->file,page->frame->kva,794,0);
+					file_close(new_aux->file);
+					// file_seek(new_aux->file,origin_offset);
+					// file_seek(new_aux->file,new_aux->offset);
+					// printf("write byte !! = %d\n",file_write(new_aux->file,page->frame->kva,20));
 					file_lock_release();
 				}
-
-
+				// memset(page->frame->kva,0,PGSIZE);
 				del_elem = list_remove(del_elem);
 				vm_dealloc_page(page);
 				continue;

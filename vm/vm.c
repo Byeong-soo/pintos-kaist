@@ -83,16 +83,13 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		if(type == VM_ANON){
 			uninit_new(new_page,upage,init,type,aux,anon_initializer);
 			new_page->is_stack = false;
-			// printf("in anon\n");
 		}else if(type == VM_STACK){
-			uninit_new(new_page,upage,init,type,aux,anon_initializer);
+			uninit_new(new_page,upage,init,type,aux,NULL);
 			new_page->is_stack = true;
-			// printf("in stack\n");
 		}else if(type == VM_FILE){
-			uninit_new(new_page,upage,init,type,aux,file_backed_initializer);
+			uninit_new(new_page,upage,vm_file_init,type,aux,file_backed_initializer);
 			new_page->is_stack = false;
 		}
-		
 		new_page->writable = writable;
 		// }else if(type == VM_MARKER_0){
 		// 	uninit_new(new_page,upage,,type,NULL,NULL);
@@ -266,6 +263,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	uint64_t addrs = pg_round_down(addr);
 
 	// printf("stack bottom = %X\n",spt->stack_bottom);
+	// printf("thread_current() %d\n",thread_current()->tid);
 	// printf("addr = %X\n",addrs);
 	// printf("USER STACK - addr = %X\n",USER_STACK - (uint64_t)addr);
 	// printf("rsp = %X\n",f->rsp);
@@ -285,16 +283,12 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 				vm_stack_growth(addrs);
 				return true; 
 			}
-			// printf("thread current = %d\n",thread_current()->tid);
-			thread_current()->exit_code = -1;
-			thread_exit();
 		}
-
-
-
+		thread_current()->exit_code = -1;
+		thread_exit();
+		// printf("thread current = %d\n",thread_current()->tid);
 	}
 	// TODO: Your code goes here
-	thread_current()->pre_pagefault_rsp = f->rsp;
 	// printf("writable !!!!_!!_!_!_!_= %d\n",page->writable);
 	// printf("enter vm_do_claim_page\n");
 	return vm_do_claim_page (page);
@@ -346,18 +340,19 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
+
 	// TODO: Insert page table entry to map page's VA to frame's PA.
 	bool success = true;
 	// hex_dump(page,page,sizeof(struct page),true);
 	// printf("!!!!!!!!!!!!!!!!page va before swap = %X\n",page->va);
 	// printf("page writable before swap = %d\n",page->writable);
-	// printf("frame kva = %lx\n",frame->kva);
+	// printf("frame kva = %X\n",frame->kva);
 	success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,page->writable);
 	if(!success){
 		return false;
 	}
 
-	if(page->is_stack == true || page->uninit.type == VM_FILE){
+	if(page->is_stack == true){
 		return true;
 	}
 	// printf("enter swap_in\n");
@@ -401,6 +396,12 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			// printf("copy va = %X\n",copy_page_node->page->va);
 
 			enum vm_type type = copy_page->uninit.type;
+
+			if(copy_page->uninit.type == VM_FILE){
+				cur = list_next(cur);
+				continue;
+			}
+
 			void * va = copy_page->va;
 			vm_initializer *init = copy_page->uninit.init;
 			void *aux = copy_page->uninit.aux;
@@ -420,8 +421,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				uninit_new(new_page,va,init,type,new_aux,anon_initializer);		
 			}else if(type == VM_STACK){
 				uninit_new(new_page,va,NULL,type,NULL,anon_initializer);
-			}else if(type == VM_FILE){
-				struct file_page file;
 			}
 
 			// printf("origin page va= %X\n",copy_page_node->page->va);
@@ -460,20 +459,22 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	struct page * delete_page;
 	struct frame * delete_frame;
 	char index = 0;
-
 	if(list_empty(delete_list) || delete_elem == NULL){
 		return;
 	}
+
 
 	while (delete_elem != list_end(delete_list))
 	{	
 		// delete_page_node = list_entry(delete_elem, struct page_table_node, elem);
 		delete_page = list_entry(delete_elem, struct page, elem);
-		delete_elem = list_remove(delete_elem);
 		if(delete_page->uninit.type == VM_FILE){
+			struct load_info * info = (struct load_info *)delete_page->file.aux;
+			delete_elem = list_next(delete_elem);
 			do_munmap(delete_page->va);
+			continue;
 		}
-
+		delete_elem = list_remove(delete_elem);
 		vm_dealloc_page(delete_page);
 		// free(delete_page->uninit.aux);
 		// if(delete_page->frame != NULL){
