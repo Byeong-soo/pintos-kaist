@@ -62,7 +62,6 @@ void clear_fd_list();
 struct fd * find_matched_fd(int fd_value);
 
 
-
 void file_lock_acquire();
 void file_lock_release();
 bool check_file_lock_holder();

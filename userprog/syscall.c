@@ -502,9 +502,9 @@ void * syscall_mmap(struct intr_frame *f){
 	// printf("mmap_fd value = %d, ofrigin offset = %d file_length = %X\n",read_fd->value,read_fd->file->pos,file_length(read_fd->file));
 	f->R.rax = do_mmap(addr,filesize,writable,read_fd->file,offset);
 
-	file_lock_acquire();
-	file_seek(read_fd->file,origin_offset);
-	file_lock_release();
+	// file_lock_acquire();
+	// file_seek(read_fd->file,origin_offset);
+	// file_lock_release();
 	return addr;
 }
 
