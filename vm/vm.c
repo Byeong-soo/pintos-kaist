@@ -87,7 +87,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			uninit_new(new_page,upage,init,type,aux,NULL);
 			new_page->is_stack = true;
 		}else if(type == VM_FILE){
-			uninit_new(new_page,upage,vm_file_init,type,aux,file_backed_initializer);
+			uninit_new(new_page,upage,init,type,aux,file_backed_initializer);
 			new_page->is_stack = false;
 		}
 		new_page->writable = writable;

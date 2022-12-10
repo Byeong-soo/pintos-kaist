@@ -20,6 +20,17 @@ static const struct page_operations file_ops = {
 	.type = VM_FILE,
 };
 
+struct load_info_mmu
+{
+	uint64_t page_read_bytes;
+	uint64_t page_zero_bytes;
+	off_t offset;
+	struct file *file;
+	uint64_t va;
+	uint64_t start_va;
+};
+
+
 /* The initializer of file vm */
 void
 vm_file_init (void) {
@@ -41,8 +52,7 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	file_page->type = type;
 	file_page->aux = load_info;
 
-
-	return true;
+	return (init ? init (page, load_info) : false);	
 }
 
 /* Swap in the page by read contents from the file. */
@@ -107,35 +117,33 @@ do_mmap (void *addr, size_t length, int writable,
 	// 	length = file_len;
 	// }
 
-
-
-
-
 	if(start_page == NULL || end_page == NULL){
 		
 		while (start_va < end_va + PGSIZE)
 		{
 			if(!pml4_get_page(thread_current()->pml4,start_va)){
-				struct load_info * new_aux = (struct load_info*)malloc(sizeof(struct load_info));
-
-	
+				struct load_info_mmu * new_aux = (struct load_info_mmu*)malloc(sizeof(struct load_info_mmu));
 
 				file_lock_acquire();
 				new_aux->file = file_reopen(file);
 				file_lock_release();
 				
-				new_aux->writable = writable;
 				new_aux->offset = check_offset;
-				new_aux->va = addr;
+				new_aux->va = start_va;
+				new_aux->start_va = addr;
 				if(file_len < PGSIZE){
 					new_aux->page_read_bytes = file_len;
+					new_aux->page_zero_bytes = PGSIZE - file_len;
 				}else{
 					new_aux->page_read_bytes = PGSIZE;
+					new_aux->page_zero_bytes = 0;
 				}
 
 				// printf("offset = %d\n",new_aux->offset);	
 				// printf("length = %d\n",length);	
-				vm_alloc_page_with_initializer(VM_FILE,start_va,writable,vm_file_init,new_aux);
+				if(!vm_alloc_page_with_initializer(VM_FILE,start_va,writable,mmap_lazy_load,new_aux)){
+					return NULL;
+				}
 				file_len -=PGSIZE;
 				check_offset += PGSIZE;
 			}
@@ -145,10 +153,10 @@ do_mmap (void *addr, size_t length, int writable,
 		return NULL;
 	}
  
-	file_lock_acquire();
-	file_seek(file,offset);
-	return_value = file_read(file,addr,length);
-	file_lock_release();
+	// file_lock_acquire();
+	// file_seek(file,offset);
+	// return_value = file_read(file,addr,length);
+	// file_lock_release();
 
 	// struct page * page = spt_find_page(&thread_current()->spt,addr);
 	// ASSERT(page == NULL);
@@ -158,12 +166,8 @@ do_mmap (void *addr, size_t length, int writable,
 	// printf("after read !!!! return_value  = %d\n",return_value);
 
 	void * mmap = NULL;
-	if(return_value != NULL){
-		mmap = addr;
-	}
-
+	mmap = addr;
 	// printf("mmap %X\n",mmap);
-
 	return mmap;
 }
 
@@ -190,13 +194,13 @@ do_munmap (void *addr) {
 		// printf("type!!! %d\n",page->uninit.type);
 		// printf("va!!!!! %X\n",page->va);
 		if(page->uninit.type == VM_FILE){
-			struct load_info * new_aux = (struct load_info *)page->file.aux;
+			struct load_info_mmu * new_aux = (struct load_info_mmu *)page->file.aux;
 			// printf("!!!!!!!new_aux va = %X\n",new_aux->va);
 			// PANIC("HERE!!!!!");
 			// hex_dump(page,page,sizeof(struct page),true);
 			// printf("aux va %X\n",new_aux->va);
 			// printf("aux va %X\n",page->va);
-			if(new_aux->va == addr){
+			if(new_aux->start_va == addr){
 				// printf("hi?\n");
 				// if(pml4_is_dirty(t->pml4,page->va) && new_aux->writable){
 				if(pml4_is_dirty(t->pml4,page->va) && page->writable){
@@ -227,4 +231,28 @@ do_munmap (void *addr) {
 		}
 		del_elem = list_next(del_elem);
 	}
+}
+
+bool
+mmap_lazy_load(struct page *page, void *aux)
+{
+	bool has_lock = false;
+	bool success = false;
+	has_lock = check_file_lock_holder();
+	
+	struct load_info_mmu *lazy_info = (struct load_info_mmu *) aux;
+	
+	if(!has_lock){file_lock_acquire();}
+	file_seek(lazy_info->file,lazy_info->offset);
+
+	if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
+	{ 
+		if(!has_lock){file_lock_release();}
+		palloc_free_page(page);
+		return false;
+	}
+	if(!has_lock){file_lock_release();}
+	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
+
+	return true;
 }
