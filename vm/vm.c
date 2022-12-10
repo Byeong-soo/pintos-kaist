@@ -99,7 +99,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// printf("new_page writable = %d\n",new_page->writable);
 		//! TODO 오류 처리
 		spt_insert_page(spt,new_page);
-		// printf("hi!!!!!!!!!!!!@@@@@@@@@@@@@@@\n");
 	}
 	// printf("vm_alloc_page_with_initializer end!!!!!\n");
 	return true;
@@ -141,10 +140,7 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 
 	// struct page_table_node* new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
 
-	// if(new_page_node == NULL || page == NULL){
-	if(page == NULL){
-		return false;
-	}
+
 	// new_page_node->page = page;
 	// printf("push va = %X\n",page->va);
 	list_push_front(&spt->page_list,&page->elem);
@@ -316,6 +312,10 @@ vm_claim_page (void *va) {
 
 	// vm_alloc_page(VM_MARKER_0,va,true);
 	page = spt_find_page(&t->spt,va);
+
+	if(page == NULL){
+		return false;
+	}
 	// printf("page va^^^^^^ =%X\n",page->va);
 	// ASSERT(page == NULL);
 	// if(page.)
