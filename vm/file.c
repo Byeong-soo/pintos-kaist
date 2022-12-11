@@ -244,7 +244,7 @@ mmap_lazy_load(struct page *page, void *aux)
 	
 	if(!has_lock){file_lock_acquire();}
 	file_seek(lazy_info->file,lazy_info->offset);
-
+ 
 	if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
 	{ 
 		if(!has_lock){file_lock_release();}

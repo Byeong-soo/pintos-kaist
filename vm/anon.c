@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include "lib/kernel/bitmap.h"
 
+#define SWAP_BIT_DEFAULT -2
+
 //! DO NOT MODIFY BELOW LINE
 static struct disk *swap_disk;
 static bool anon_swap_in (struct page *page, void *kva);
@@ -39,7 +41,6 @@ setup_swap_disk_bitmap(){
 bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
-
 	page->operations = &anon_ops;
 	struct anon_page *anon_page = &page->anon;
 	return true;
@@ -50,7 +51,7 @@ static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
 
-	if(page->swap_bit_index == NULL){
+	if(page->swap_bit_index == SWAP_BIT_DEFAULT){
 		return true;
 	}
 
@@ -59,14 +60,13 @@ anon_swap_in (struct page *page, void *kva) {
 	}
 
 	restore_bitmap(page->swap_bit_index);
-	page->swap_bit_index = NULL;
+	page->swap_bit_index = SWAP_BIT_DEFAULT;
 	return true;
 }
 
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out (struct page *page) {
-
 	struct anon_page *anon_page = &page->anon;
 	struct thread * t = thread_current();
 
@@ -91,8 +91,8 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-
-	if(page->swap_bit_index != NULL){
+	struct frame * frame = page->frame;
+	if(page->swap_bit_index != SWAP_BIT_DEFAULT){
 		restore_bitmap(page->swap_bit_index);
 	}
 
@@ -101,6 +101,18 @@ anon_destroy (struct page *page) {
 	}
 	
 	if(page->frame != NULL){
-		free(page->frame);
+		if(page->frame->cow_count > 0){
+			page->frame->cow_count -=1;
+			page->frame = NULL;
+			printf("cow_count > 0 uninit page va = %X\n",page->va);
+			// printf("ninit page type= %d\n",page->uninit.type);
+			pml4_clear_page(thread_current()->pml4,page->va);		
+			// palloc_free_page(page->frame->kva);
+			page->frame = NULL;
+			free(page->frame);
+			// printf("cow_count > 0 page va = %X\n",page->va);
+			// printf("opertation page va = %d\n",page->operations->type);
+		// if(delete_page != NULL){
+		}
 	}
 }

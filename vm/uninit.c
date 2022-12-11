@@ -10,6 +10,7 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "threads/mmu.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -77,10 +78,22 @@ uninit_destroy (struct page *page) {
 	// TODO: Fill this function.
 	// TODO: If you don't have anything to do, just return.
 
+
 	if(page->uninit.aux != NULL){
-		free(page->uninit.aux);
+		free(page->anon.aux);
 	}
+	
+
 	if(page->frame != NULL){
-		free(page->frame);
+		if(page->frame->cow_count > 0){
+			page->frame->cow_count -=1;
+			page->frame = NULL;
+			printf("cow_count > 0 uninit page va = %X\n",page->va);
+			// printf("ninit page type= %d\n",page->uninit.type);
+			pml4_clear_page(thread_current()->pml4,page->va);		
+			// palloc_free_page(page->frame->kva);
+			page->frame = NULL;
+			free(page->frame);
+		}
 	}
 }
