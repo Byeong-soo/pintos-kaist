@@ -34,7 +34,7 @@ struct load_info_mmu
 /* The initializer of file vm */
 void
 vm_file_init (void) {
-	// PANIC("enter_file_init");
+
 }
 
 /* Initialize the file backed page */
@@ -58,9 +58,26 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page = &page->file;
+	
+	bool has_lock = false;
+	bool success = false;
+	has_lock = check_file_lock_holder();
+	
 
-	// PANIC("TODO");
+	struct load_info_mmu *lazy_info = (struct load_info_mmu *) page->file.aux;
+	
+	if(!has_lock){file_lock_acquire();}
+	file_seek(lazy_info->file,lazy_info->offset);
+
+	if (file_read(lazy_info->file, kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
+	{ 
+		if(!has_lock){file_lock_release();}
+		palloc_free_page(page);
+		return false;
+	}
+	if(!has_lock){file_lock_release();}
+	memset(kva+ lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
+
 	return true;
 }
 
@@ -68,6 +85,27 @@ file_backed_swap_in (struct page *page, void *kva) {
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page = &page->file;
+
+	struct thread * t = thread_current();
+	struct list * page_list = &t->spt.page_list;
+	struct list_elem * del_elem;
+
+	struct load_info_mmu * new_aux = (struct load_info_mmu *)page->file.aux;
+
+	if(pml4_is_dirty(t->pml4,page->va) && page->writable){
+		file_lock_acquire();
+		file_write_at(new_aux->file,page->frame->kva,new_aux->page_read_bytes,new_aux->offset);
+		file_close(new_aux->file);
+		file_lock_release();
+	}
+	
+	pml4_set_dirty(t->pml4,page->va,false);
+	pml4_clear_page(t->pml4,page->va);
+	page->frame->kva = NULL;
+	return true;
+
+	error:
+	return false;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
@@ -80,10 +118,6 @@ file_backed_destroy (struct page *page) {
 	}
 
 	if(page->frame != NULL){
-		// printf("page frame kva = %X\n",page->frame->kva);
-		// if(page->frame->kva != NULL){
-		// 	palloc_free_page(page->frame->kva);
-		// }
 		free(page->frame);
 	}
 }
@@ -106,16 +140,9 @@ do_mmap (void *addr, size_t length, int writable,
 	if(is_kernel_vaddr(start_va) || is_kernel_vaddr(end_va))
 		return NULL;
  
-	// printf("in mmap !!!!!\n");
-	// printf("mmap offset = %X\n",offset);
 	file_lock_acquire();
 	size_t file_len = file_length(file);
 	file_lock_release();
-	// printf("mmap file length= %X\n",file_len);
-	// size_t origin_len = length;
-	// if(length > file_len){
-	// 	length = file_len;
-	// }
 
 	if(start_page == NULL || end_page == NULL){
 		
@@ -139,8 +166,6 @@ do_mmap (void *addr, size_t length, int writable,
 					new_aux->page_zero_bytes = 0;
 				}
 
-				// printf("offset = %d\n",new_aux->offset);	
-				// printf("length = %d\n",length);	
 				if(!vm_alloc_page_with_initializer(VM_FILE,start_va,writable,mmap_lazy_load,new_aux)){
 					return NULL;
 				}
@@ -152,22 +177,8 @@ do_mmap (void *addr, size_t length, int writable,
 	}else{
 		return NULL;
 	}
- 
-	// file_lock_acquire();
-	// file_seek(file,offset);
-	// return_value = file_read(file,addr,length);
-	// file_lock_release();
-
-	// struct page * page = spt_find_page(&thread_current()->spt,addr);
-	// ASSERT(page == NULL);
-
-	// printf("after read !!!!\n");
-	// printf("after read !!!! addr = %X\n",addr);
-	// printf("after read !!!! return_value  = %d\n",return_value);
-
 	void * mmap = NULL;
 	mmap = addr;
-	// printf("mmap %X\n",mmap);
 	return mmap;
 }
 
@@ -182,27 +193,16 @@ do_munmap (void *addr) {
 
 	del_elem = list_begin(page_list);
 
-	// printf("addr = %X\n",addr);
 	if(list_empty(page_list) || del_elem== NULL){
 		return;
 	}
-	// printf("addr = %X\n",addr);
+
 	while (del_elem != list_end(page_list))
 	{
-		// printf("addr = %X\n",addr);
 		page = list_entry(del_elem,struct page,elem);
-		// printf("type!!! %d\n",page->uninit.type);
-		// printf("va!!!!! %X\n",page->va);
 		if(page->uninit.type == VM_FILE){
 			struct load_info_mmu * new_aux = (struct load_info_mmu *)page->file.aux;
-			// printf("!!!!!!!new_aux va = %X\n",new_aux->va);
-			// PANIC("HERE!!!!!");
-			// hex_dump(page,page,sizeof(struct page),true);
-			// printf("aux va %X\n",new_aux->va);
-			// printf("aux va %X\n",page->va);
 			if(new_aux->start_va == addr){
-				// printf("hi?\n");
-				// if(pml4_is_dirty(t->pml4,page->va) && new_aux->writable){
 				if(pml4_is_dirty(t->pml4,page->va) && page->writable){
 					// printf("read_byte = %d\n",new_aux->page_read_bytes);
 					// printf("offset = %d\n",new_aux->offset);

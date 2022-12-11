@@ -777,7 +777,7 @@ lazy_load_segment(struct page *page, void *aux)
 	// printf("file offffffset %d\n",lazy_info->file->pos);
 	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
 	//! free!!
-	// free(lazy_info);
+	// free(lazy_info)
 	return true;
 }
 

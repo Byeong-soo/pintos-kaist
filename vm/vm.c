@@ -9,13 +9,21 @@
 #include <round.h>
 #include <stdio.h>
 #include "../include/userprog/process.h"
+#include "lib/kernel/bitmap.h"
+#include "threads/synch.h"
 
+struct list frame_list;
+struct bitmap *disk_bitmap;
+struct lock bitmap_lock;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
 vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
+	list_init(&frame_list);
+	lock_init(&bitmap_lock);
+	disk_bitmap = setup_swap_disk_bitmap();
 #ifdef EFILESYS  /* For project 4 */
 	pagecache_init ();
 #endif
@@ -98,7 +106,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// printf("new_page va = %X\n",upage);
 		// printf("new_page writable = %d\n",new_page->writable);
 		//! TODO 오류 처리
-		spt_insert_page(spt,new_page);
+		spt_insert_page(spt,new_page,&spt->page_list);
 	}
 	// printf("vm_alloc_page_with_initializer end!!!!!\n");
 	return true;
@@ -134,26 +142,21 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
-	int succ = false;
+spt_insert_page (struct supplemental_page_table *spt, struct page *page,struct list * list) {
 	/* TODO: Fill this function. */
+	int succ = false;
 
-	// struct page_table_node* new_page_node = (struct page_table_node *)malloc(sizeof(struct page_table_node));
-
-
-	// new_page_node->page = page;
-	// printf("push va = %X\n",page->va);
-	list_push_front(&spt->page_list,&page->elem);
+	list_push_front(list,&page->elem);
 	return true;
 }
 
 void
-spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+spt_remove_page (struct supplemental_page_table *spt, struct page *page,struct list * list) {
 
 	struct list * page_list;
 	struct list_elem * page_list_elem;
 
-	page_list = &spt->page_list;
+	page_list = list;
 	page_list_elem = list_begin(page_list);
 
 	while (page_list_elem != list_end(page_list))
@@ -176,7 +179,35 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
+	struct list_elem *victim_elem = NULL;
 	 // TODO: The policy for eviction is up to you.
+
+	while (1)
+	{	
+		
+		if(list_empty(&frame_list)){
+			break;
+		}
+
+		victim_elem = list_pop_front(&frame_list);
+		victim = list_entry(victim_elem,struct frame,elem);
+
+		if(!victim->page->writable || victim == NULL|| victim->page->frame->kva == NULL){
+			list_push_back(&frame_list,&victim->elem);
+			continue;
+		}
+
+		// printf("operation type = %d\n",victim->page->operations->type);
+		// printf("page type = %d\n",victim->page->uninit.type);
+		// printf("frame kva = %X\n",victim->kva);
+
+		if(victim->page->operations->type == 0 ){
+			list_push_back(&frame_list,&victim->elem);
+		}else{
+			break;
+		}
+
+	}
 
 	return victim;
 }
@@ -188,7 +219,9 @@ vm_evict_frame (void) {
 	struct frame *victim = vm_get_victim ();
 	// TODO: swap out the victim and return the evicted frame.
 
-	return NULL;
+	swap_out(victim->page);
+
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -201,17 +234,21 @@ vm_get_frame (void) {
 	struct frame *frame = (struct frame *)malloc(sizeof(struct frame));
 
 	if(frame == NULL){
-		return NULL;
+		frame = vm_evict_frame();
 	}
 
 	//TODO: Fill this function.
 	frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
 	frame->page = NULL;
 
-	if(frame == NULL || frame->kva == NULL){
-		PANIC("TODO");
+	if(frame->kva == NULL){
+		free(frame);
+		frame = vm_evict_frame();
+		frame->page = NULL;
 	}
-	
+
+	list_push_back(&frame_list,&frame->elem);
+
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 
@@ -245,6 +282,21 @@ vm_stack_growth (void *addr) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page) {
+
+	struct frame * frame,*new_frame;
+	frame = page->frame;
+
+	if(frame->copy_on_write > 0){
+		// 할당 해제.
+		frame->copy_on_write -= 1;
+		pml4_clear_page(thread_current()->pml4,page->va);
+		if(!vm_do_claim_page(page)){
+			return false;
+		}
+		memcpy(page->frame->kva,frame->kva,PGSIZE);
+	}
+
+	return treu;
 }
 
 /* Return true on success */
@@ -258,6 +310,8 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	struct page *page = NULL;
 	uint64_t addrs = pg_round_down(addr);
 
+
+
 	// printf("stack bottom = %X\n",spt->stack_bottom);
 	// printf("thread_current() %d\n",thread_current()->tid);
 	// printf("addr = %X\n",addrs);
@@ -269,6 +323,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	// TODO: Validate the fault
 
 	page = spt_find_page(spt,addrs);
+
 	// USER_STACK
 	if(page == NULL){
 		if(user){
@@ -285,6 +340,9 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 		// printf("thread current = %d\n",thread_current()->tid);
 	}
 	// TODO: Your code goes here
+	if(page->writable == false && write == true){
+		return false;
+	}
 	// printf("writable !!!!_!!_!_!_!_= %d\n",page->writable);
 	// printf("enter vm_do_claim_page\n");
 	return vm_do_claim_page (page);
@@ -328,12 +386,13 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 
-	if(pml4_get_page(thread_current()->pml4, page->va) != NULL){
-		// printf("pml4_get_page is not null!!!!!!!!!!!!!!!!!!!!!\n");
-		return false;
-	}
+	// if(pml4_get_page(thread_current()->pml4, page->va) != NULL){
+	// 	// printf("pml4_get_page is not null!!!!!!!!!!!!!!!!!!!!!\n");
+	// 	return false;
+	// }
 	// printf("pml4_get_page is NULL\n");
 
+	// printf("!!!!!!!!!!!!!!!!page va before swap = %X\n",page->va);
 	struct frame *frame = vm_get_frame ();
 
 	/* Set links */
@@ -344,10 +403,17 @@ vm_do_claim_page (struct page *page) {
 	// TODO: Insert page table entry to map page's VA to frame's PA.
 	bool success = true;
 	// hex_dump(page,page,sizeof(struct page),true);
-	// printf("!!!!!!!!!!!!!!!!page va before swap = %X\n",page->va);
 	// printf("page writable before swap = %d\n",page->writable);
 	// printf("frame kva = %X\n",frame->kva);
-	success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,page->writable);
+
+	if(frame->copy_on_write == NULL){
+		success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,page->writable);
+	}else if (page->uninit.type == VM_STACK || page->uninit.type == VM_FILE){
+		success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,page->writable);
+	}else{
+		success = pml4_set_page(thread_current()->pml4,page->va,frame->kva,false);
+	}
+
 	if(!success){
 		return false;
 	}
@@ -366,6 +432,7 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 	//* 3주차 추가
 	struct thread* t = thread_current();
 	list_init(&t->spt.page_list);
+	list_init(&t->spt.swap_list);
 }
 
 /* Copy supplemental page table from src to dst */
@@ -427,10 +494,11 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			// printf("copy page va= %X\n",new_page->va);
 			// printf("origin frame kva = %X\n",copy_page_node->page->frame->kva);
 			//! TODO 오류 처리
-			spt_insert_page(dst,new_page);
+			spt_insert_page(dst,new_page,&dst->page_list);
 
 			new_page->writable = copy_page->writable;
 			new_page->is_stack = is_stack;
+
 			if(copy_page->frame != NULL){
 				vm_do_claim_page(new_page);
 				memcpy(new_page->frame->kva,copy_page->frame->kva,PGSIZE);
@@ -455,13 +523,33 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	// TODO: writeback all the modified contents to the storage.
 
 	struct list* delete_list = &spt->page_list;	
+
+	if(list_empty(delete_list)){
+		return;
+	}
+	// struct list_elem * delete_elem = list_pop_front(delete_list);
 	struct list_elem * delete_elem = list_begin(delete_list);
 	struct page * delete_page;
 	struct frame * delete_frame;
 	char index = 0;
+
 	if(list_empty(delete_list) || delete_elem == NULL){
 		return;
 	}
+
+
+	// while (!list_empty(delete_list))
+	// {	
+	// 	delete_page = list_entry(delete_elem, struct page, elem);
+	// 	if(delete_page->uninit.type == VM_FILE){
+	// 		struct load_info * info = (struct load_info *)delete_page->file.aux;
+	// 		delete_elem = list_pop_front(delete_list);
+	// 		do_munmap(delete_page->va);
+	// 		continue;
+	// 	}
+	// 	delete_elem = list_pop_front(delete_list);
+	// 	vm_dealloc_page(delete_page);
+	// }
 
 
 	while (delete_elem != list_end(delete_list))
@@ -476,10 +564,30 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 		}
 		delete_elem = list_remove(delete_elem);
 		vm_dealloc_page(delete_page);
-		// free(delete_page->uninit.aux);
-		// if(delete_page->frame != NULL){
-		// 	free(delete_page->frame);
-		// }
-		// free(delete_page);
 	}
+}
+
+size_t
+find_empty_disk_sector(){
+	bitmap_lock_aquire();
+	size_t index = bitmap_scan_and_flip(disk_bitmap,0,1,false);
+	bitmap_lock_release();
+	return index;
+}
+
+void
+restore_bitmap(size_t index){
+	bitmap_lock_aquire();
+	bitmap_flip(disk_bitmap,index);
+	bitmap_lock_release();
+}
+
+void
+bitmap_lock_aquire(){
+	lock_acquire(&bitmap_lock);
+}
+
+void
+bitmap_lock_release(){
+	lock_release(&bitmap_lock);
 }

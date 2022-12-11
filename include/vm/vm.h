@@ -36,6 +36,7 @@ enum page_position {
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
+#include "lib/kernel/list.h"
 #ifdef EFILESYS
 #include "filesys/page_cache.h"
 #endif
@@ -58,6 +59,7 @@ struct page {
 	bool writable;
 	bool is_stack;
 	struct list_elem elem;
+	size_t swap_bit_index;
 	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -75,6 +77,8 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem elem;
+	size_t copy_on_write;
 };
 
 /* The function table for page operations.
@@ -105,6 +109,7 @@ struct supplemental_page_table {
 	// 해당 페이지를 전혀 접근하지 않는다면 이 모든 작업을 피할 수 있으며, 이것이 장점
 	bool access;
 	struct list page_list;
+	struct list swap_list;
 	uint64_t stack_bottom;
 };
 
@@ -121,8 +126,8 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 void supplemental_page_table_kill (struct supplemental_page_table *spt);
 struct page *spt_find_page (struct supplemental_page_table *spt,
 		void *va);
-bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
-void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
+bool spt_insert_page (struct supplemental_page_table *spt, struct page *page, struct list * list);
+void spt_remove_page (struct supplemental_page_table *spt, struct page *page, struct list * list);
 
 void vm_init (void);
 bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
@@ -136,4 +141,9 @@ void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
 
+size_t find_empty_disk_sector();
+void restore_bitmap(size_t index);
+
+void bitmap_lock_aquire();
+void bitmap_lock_release();
 #endif  /* VM_VM_H */

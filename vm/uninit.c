@@ -22,6 +22,14 @@ static const struct page_operations uninit_ops = {
 	.type = VM_UNINIT,
 };
 
+static const struct page_operations stack_ops = {
+	.swap_in = uninit_initialize,
+	.swap_out = NULL,
+	.destroy = uninit_destroy,
+	.type = VM_STACK,
+};
+
+
 //! DO NOT MODIFY this function
 void
 uninit_new (struct page *page, void *va, vm_initializer *init,
