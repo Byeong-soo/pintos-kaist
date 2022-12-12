@@ -78,22 +78,32 @@ uninit_destroy (struct page *page) {
 	// TODO: Fill this function.
 	// TODO: If you don't have anything to do, just return.
 
+	struct frame * frame = page->frame;
 
 	if(page->uninit.aux != NULL){
 		free(page->anon.aux);
 	}
 	
-
 	if(page->frame != NULL){
-		if(page->frame->cow_count > 0){
-			page->frame->cow_count -=1;
-			page->frame = NULL;
-			// printf("cow_count > 0 uninit page va = %X\n",page->va);
-			// printf("ninit page type= %d\n",page->uninit.type);
+ 
+		hash_delete(&frame->page_hash,&page->frame_hash_elem);
+		printf("uninit hash size = %d\n",hash_size(&frame->page_hash));
+		if(hash_size(&frame->page_hash) > 0){
 			pml4_clear_page(thread_current()->pml4,page->va);		
-			// palloc_free_page(page->frame->kva);
-			page->frame = NULL;
+		}else{
 			free(page->frame);
 		}
+		page->frame = NULL;
+
+		// if(page->frame->cow_count > 0){
+		// 	page->frame->cow_count -=1;
+		// 	page->frame = NULL;
+		// 	// printf("cow_count > 0 uninit page va = %X\n",page->va);
+			// printf("ninit page type= %d\n",page->uninit.type);
+			// pml4_clear_page(thread_current()->pml4,page->va);		
+			// palloc_free_page(page->frame->kva);
+			// page->frame = NULL;
+			// free(page->frame);
+		// }
 	}
 }

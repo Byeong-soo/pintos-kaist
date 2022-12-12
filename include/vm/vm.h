@@ -2,6 +2,7 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
+#include "lib/kernel/hash.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -59,6 +60,7 @@ struct page {
 	bool writable;
 	bool is_stack;
 	struct list_elem elem;
+	struct hash_elem frame_hash_elem;
 	size_t swap_bit_index;
 	bool cow;
 	
@@ -77,7 +79,7 @@ struct page {
 /* The representation of "frame" */
 struct frame {
 	void *kva;
-	struct page *page;
+	struct hash page_hash;
 	struct list_elem elem;
 	int cow_count;
 };
@@ -148,9 +150,6 @@ void restore_bitmap(size_t index);
 
 void bitmap_lock_aquire();
 void bitmap_lock_release();
-
-void
-memset_lock_aquire();
-void
-memset_lock_release();
+void frame_lock_aquire();
+void frame_lock_release();
 #endif  /* VM_VM_H */

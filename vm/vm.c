@@ -15,8 +15,7 @@
 
 struct list frame_list;
 struct bitmap *disk_bitmap;
-struct lock bitmap_lock;
-struct lock memset_lock;
+struct lock bitmap_lock,frame_lock;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -25,7 +24,7 @@ vm_init (void) {
 	vm_file_init ();
 	list_init(&frame_list);
 	lock_init(&bitmap_lock);
-	lock_init(&memset_lock);
+	lock_init(&frame_lock);
 	disk_bitmap = setup_swap_disk_bitmap();
 #ifdef EFILESYS  /* For project 4 */
 	pagecache_init ();
@@ -182,7 +181,7 @@ vm_get_victim (void) {
 
 	while (1)
 	{	
-		
+		bool check = true;
 		if(list_empty(&frame_list)){
 			break;
 		}
@@ -190,10 +189,26 @@ vm_get_victim (void) {
 		victim_elem = list_pop_front(&frame_list);
 		victim = list_entry(victim_elem,struct frame,elem);
 
-		if(!victim->page->writable || victim == NULL|| victim->page->frame->kva == NULL){
-			list_push_back(&frame_list,&victim->elem);
-			continue;
+		struct hash_iterator i;
+		hash_first (&i, &victim->page_hash);
+		while (hash_next (&i)) {
+			struct page *victim_page = hash_entry (hash_cur (&i), struct page, frame_hash_elem);
+
+			if(!victim_page->writable || victim_page->frame->kva == NULL || victim_page->operations->type == 0){
+				check = false;
+			}
+			if(!check)
+				break;
 		}
+
+		if(check)
+			break;
+
+
+		// if(!victim->page->writable || victim == NULL|| victim->page->frame->kva == NULL){
+		// 	list_push_back(&frame_list,&victim->elem);
+		// 	continue;
+		// }
 
 		// printf("operation type = %d\n",victim->page->operations->type);
 		// printf("page type = %d\n",victim->page->uninit.type);
@@ -201,11 +216,11 @@ vm_get_victim (void) {
 		// page_elem = list_begin(victim);
 		// struct page* find_page = list_entry(page_elem,struct page,frame_elem);
 
-		if(victim->page->operations->type == 0 ){
-			list_push_back(&frame_list,&victim->elem);
-		}else{
-			break;
-		}
+		// if(victim->page->operations->type == 0 ){
+		// 	list_push_back(&frame_list,&victim->elem);
+		// }else{
+		// 	break;
+		// }
 
 	}
 
@@ -218,8 +233,14 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim = vm_get_victim ();
 	// TODO: swap out the victim and return the evicted frame.
+	struct hash_iterator i;
 
-	swap_out(victim->page);
+	hash_first (&i, &victim->page_hash);
+
+	while (hash_next (&i)) {
+		struct page * victim_page = hash_entry (hash_cur (&i), struct page, frame_hash_elem);
+		swap_out(victim_page);
+	}
 
 	return victim;
 }
@@ -230,29 +251,34 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
+
+	lock_acquire(&frame_lock);
 	//! free !!
 	struct frame *frame = (struct frame *)malloc(sizeof(struct frame));
+	hash_init(&frame->page_hash,hash_int,frame_page_less,NULL);
 
-	frame->cow_count = 0;
 	if(frame == NULL){
 		frame = vm_evict_frame();
 	}
 
+
 	//TODO: Fill this function.
 	frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
-	frame->page = NULL;
+	// printf("frame kva = %X\n",frame->kva);
+	// frame->page = NULL;
 
 	if(frame->kva == NULL){
 		free(frame);
 		frame = vm_evict_frame();
-		frame->page = NULL;
+		// frame->page = NULL;
 	}
 
 	list_push_back(&frame_list,&frame->elem);
 
 	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
-
+	ASSERT(hash_size(&frame->page_hash) == NULL);
+	// ASSERT (frame->page == NULL);
+	lock_release(&frame_lock);
 	return frame;
 }
 
@@ -330,9 +356,18 @@ vm_handle_wp (struct page *page) {
 	if(page->writable == true){
 		// 원래 매모리 해제
 		pml4_clear_page(thread_current()->pml4,page->va);
-		if(page->frame->cow_count > 0){
-			page->frame->cow_count -=1;
+		hash_delete(&page->frame->page_hash,&page->frame_hash_elem);
+
+		if(hash_size(&frame->page_hash) == 1){
+			struct hash_iterator i;
+			hash_first (&i, &frame->page_hash);
+			struct page *left_page = hash_entry (hash_cur (&i), struct page, frame_hash_elem);
+			left_page->cow = false;
 		}
+
+		// if(page->frame->cow_count > 0){
+		// 	page->frame->cow_count -=1;
+		// }
 		// 물리 메모리 새로 할당 후 복사.
 		vm_do_claim_page(page);
 		struct page * find_page = spt_find_page(&thread_current()->spt,page->va);
@@ -452,10 +487,15 @@ vm_do_claim_page (struct page *page) {
 
 	// printf("!!!!!!!!!!!!!!!!page va before swap = %X\n",page->va);
 	struct frame *frame = vm_get_frame ();
-
 	/* Set links */
-	frame->page = page;
+	// frame->page = page;
+	frame_lock_aquire();
+	hash_insert(&frame->page_hash,&page->frame_hash_elem);
+	frame_lock_release();
+
 	page->frame = frame;
+	// printf(" size !!!!! %d\n",hash_size(&page->frame->page_hash));
+	// PANIC("hi?");
 
 	// TODO: Insert page table entry to map page's VA to frame's PA.
 	bool success = true;
@@ -556,7 +596,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 			new_page->writable = copy_page->writable;
 			new_page->is_stack = is_stack;
-			new_page->swap_bit_index = -2;
+			new_page->swap_bit_index = SWAP_BIT_DEFAULT;
 
 			if(copy_page->frame != NULL){
 
@@ -568,19 +608,24 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 					// printf("!!!!copy frame kva = %X, copyed new page va = %X\n",new_page->frame->kva,new_page->va);
 					continue;
 				}
+
 				copy_page->cow = true;
 				new_page->cow = true;
 				new_page->frame = copy_page->frame;
-				new_page->frame->cow_count +=1;
-
-				pml4_set_page(thread_current()->pml4,new_page->va,copy_page->frame->kva,false);
+				// new_page->frame->cow_count +=1;
+				frame_lock_aquire();
+				hash_insert(&copy_page->frame->page_hash,&new_page->frame_hash_elem);
+				frame_lock_release();
+				
+				if(!pml4_set_page(thread_current()->pml4,new_page->va,copy_page->frame->kva,false)){
+					return false;
+				}
 				// printf("copy pml4 set page %d\n",su);
 				pml4_clear_page(src->pml4,copy_page->va);
-				bool success = true;
-				// printf("------------------------------------\n");
-				// printf("copy_apge_va = %X  copy_page_frame_kva = %X\n",copy_page->va,copy_page->frame->kva);
-				// printf("src pml4 = %d child pml4 = %d\n",src->pml4,dst->pml4);
-				success = pml4_set_page(src->pml4,copy_page->va,copy_page->frame->kva,false);
+
+				if(!pml4_set_page(src->pml4,copy_page->va,copy_page->frame->kva,false)){
+					return false;
+				}
 
 				// if(!success && copy_page->writable == true){
 				// 	pml4_clear_page(thread_current()->pml4, new_page->va);
@@ -703,11 +748,12 @@ bitmap_lock_release(){
 }
 
 void
-memset_lock_aquire(){
-	lock_acquire(&memset_lock);
+frame_lock_aquire(){
+	lock_acquire(&frame_lock);
 }
 
+
 void
-memset_lock_release(){
-	lock_release(&memset_lock);
+frame_lock_release(){
+	lock_release(&frame_lock);
 }

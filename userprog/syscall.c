@@ -181,7 +181,7 @@ int syscall_wait(struct intr_frame *f)
 {
 	int pid = f->R.rdi;
 	struct child_info *child_info = search_children_list(pid);
-	// printf("i(%d) will wait %d\n",thread_current()->tid,pid);
+
 	if (child_info == NULL)
 	{
 		f->R.rax = -1;

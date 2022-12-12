@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include "lib/kernel/bitmap.h"
 
-#define SWAP_BIT_DEFAULT -2
+
 
 //! DO NOT MODIFY BELOW LINE
 static struct disk *swap_disk;
@@ -69,7 +69,7 @@ static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 	struct thread * t = thread_current();
-
+ 
 	size_t index = find_empty_disk_sector();
 	if(index == BITMAP_ERROR){
 		return false;
@@ -83,7 +83,11 @@ anon_swap_out (struct page *page) {
 	struct frame * swap_out_frame = page->frame;
 
 	pml4_clear_page(t->pml4,page->va);
-	swap_out_frame->page = NULL;
+
+	frame_lock_aquire();
+	hash_delete(&page->frame->page_hash,&page->frame_hash_elem);
+	frame_lock_release();
+	// swap_out_frame->page = NULL;
 	page->frame = NULL;
 }
 
@@ -92,6 +96,7 @@ static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 	struct frame * frame = page->frame;
+
 	if(page->swap_bit_index != SWAP_BIT_DEFAULT){
 		restore_bitmap(page->swap_bit_index);
 	}
@@ -101,18 +106,30 @@ anon_destroy (struct page *page) {
 	}
 	
 	if(page->frame != NULL){
-		if(page->frame->cow_count > 0){
-			page->frame->cow_count -=1;
-			page->frame = NULL;
+
+		printf("anone hash size = %d\n",hash_size(&frame->page_hash));
+
+		// frame_lock_aquire();
+
+		hash_delete(&frame->page_hash,&page->frame_hash_elem);
+
+		// frame_lock_aquire();
+
+		if(hash_size(&frame->page_hash) > 0){
+			pml4_clear_page(thread_current()->pml4,page->va);		
+		}else{
+			free(page->frame);
+		}
+
+		page->frame = NULL;
+		// if(page->frame->cow_count > 0){
+			// page->frame->cow_count -=1;
 			// printf("cow_count > 0 uninit page va = %X\n",page->va);
 			// printf("ninit page type= %d\n",page->uninit.type);
-			pml4_clear_page(thread_current()->pml4,page->va);		
 			// palloc_free_page(page->frame->kva);
-			page->frame = NULL;
-			free(page->frame);
 			// printf("cow_count > 0 page va = %X\n",page->va);
 			// printf("opertation page va = %d\n",page->operations->type);
 		// if(delete_page != NULL){
-		}
+		// }
 	}
 }
