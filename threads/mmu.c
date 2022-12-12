@@ -7,6 +7,7 @@
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "intrinsic.h"
+#include <stdio.h>
 
 static uint64_t *
 pgdir_walk (uint64_t *pdp, const uint64_t va, int create) {
@@ -223,7 +224,6 @@ pml4_get_page (uint64_t *pml4, const void *uaddr) {
 	ASSERT (is_user_vaddr (uaddr));
 
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) uaddr, 0);
-
 	if (pte && (*pte & PTE_P))
 		return ptov (PTE_ADDR (*pte)) + pg_ofs (uaddr);
 	return NULL;
@@ -245,7 +245,6 @@ pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw) {
 	ASSERT (pml4 != base_pml4);
 
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) upage, 1);
-
 	if (pte)
 		*pte = vtop (kpage) | PTE_P | (rw ? PTE_W : 0) | PTE_U;
 	return pte != NULL;

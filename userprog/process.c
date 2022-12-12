@@ -102,6 +102,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_)
 	fork_info->if_ = if_;
 
 	tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, fork_info);
+	// printf("parent sleep!!!!\n\n");
 	process_fork_sema_down();
 
 	if (!thread_current()->make_child_success)
@@ -231,6 +232,7 @@ __do_fork(void *aux)
 		parent->make_child_success = true;
 		free(fork_info);
 		if_.R.rax = 0;
+		// printf("parent_wake_Up!\n\n");
 		process_fork_sema_up();
 		thread_yield();
 		do_iret(&if_);
@@ -446,6 +448,7 @@ load(const char *file_name, struct intr_frame *if_)
 	/* Allocate and activate page directory. */
 	// printf("!!!!!!!!!!!!!!before pml4_create\n");
 	t->pml4 = pml4_create();
+	t->spt.pml4 = t->pml4;
 	if (t->pml4 == NULL){
 		// printf("!!!!!!!!!!!!!!pml4 null\n");
 		goto done;

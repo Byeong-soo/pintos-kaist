@@ -79,7 +79,7 @@ struct frame {
 	void *kva;
 	struct page *page;
 	struct list_elem elem;
-	size_t cow_count;
+	int cow_count;
 };
 
 /* The function table for page operations.
@@ -148,4 +148,9 @@ void restore_bitmap(size_t index);
 
 void bitmap_lock_aquire();
 void bitmap_lock_release();
+
+void
+memset_lock_aquire();
+void
+memset_lock_release();
 #endif  /* VM_VM_H */

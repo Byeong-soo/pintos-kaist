@@ -89,8 +89,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			goto err;
 		}
 
-		// printf("befoe ififif\n");
-		// printf("type = %d\n",type);
+
 		if(type == VM_ANON){
 			uninit_new(new_page,upage,init,type,aux,anon_initializer);
 			new_page->is_stack = false;
@@ -101,18 +100,13 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			uninit_new(new_page,upage,init,type,aux,file_backed_initializer);
 			new_page->is_stack = false;
 		}
-		new_page->writable = writable;
-		new_page->swap_bit_index = -2;
-		// }else if(type == VM_MARKER_0){
-		// 	uninit_new(new_page,upage,,type,NULL,NULL);
-		// }
 
-		// printf("new_page va = %X\n",upage);
-		// printf("new_page writable = %d\n",new_page->writable);
+		new_page->writable = writable;
+		new_page->swap_bit_index = SWAP_BIT_DEFAULT;
+
 		//! TODO 오류 처리
 		spt_insert_page(spt,new_page,&spt->page_list);
 	}
-	// printf("vm_alloc_page_with_initializer end!!!!!\n");
 	return true;
 err:
 	return false;
@@ -290,6 +284,8 @@ vm_stack_growth (void *addr) {
 static bool
 vm_handle_wp (struct page *page) {
 
+	// printf("copy memory!!\n");
+	// printf("thread_current = %d\n",thread_current()->tid);
 	struct frame * frame,*new_frame,*pre_frame;
 	struct page * pre_page;
 	void * kva;
@@ -334,16 +330,18 @@ vm_handle_wp (struct page *page) {
 	if(page->writable == true){
 		// 원래 매모리 해제
 		pml4_clear_page(thread_current()->pml4,page->va);
-		page->frame->cow_count -=1;
+		if(page->frame->cow_count > 0){
+			page->frame->cow_count -=1;
+		}
 		// 물리 메모리 새로 할당 후 복사.
 		vm_do_claim_page(page);
 		struct page * find_page = spt_find_page(&thread_current()->spt,page->va);
 		memcpy(find_page->frame->kva,frame->kva,PGSIZE);
 		page->cow = false;
+
 		return true;
 	}
 
- 
 	return false;
 }
 
@@ -501,6 +499,8 @@ bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 
+			
+	// printf("========copy spt======== thrad_ tid = %d\n",thread_current()->tid);
 	struct list *p_spt_list, *c_spt_list;
 	struct page * copy_page;
 	struct file *copy_file;
@@ -520,7 +520,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	{
 		copy_page = list_entry(cur, struct page, elem);
 		if(copy_page != NULL){
-			// printf("copy spt\n");
 			// printf("copy va = %X\n",copy_page_node->page->va);
 
 			enum vm_type type = copy_page->uninit.type;
@@ -554,12 +553,13 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 			//! TODO 오류 처리
 			spt_insert_page(dst,new_page,&dst->page_list);
+
 			new_page->writable = copy_page->writable;
 			new_page->is_stack = is_stack;
 			new_page->swap_bit_index = -2;
 
-
 			if(copy_page->frame != NULL){
+
 				if(copy_page->uninit.type == VM_STACK){
 					vm_do_claim_page(new_page);
 					memcpy(new_page->frame->kva,copy_page->frame->kva,PGSIZE);
@@ -568,28 +568,45 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 					// printf("!!!!copy frame kva = %X, copyed new page va = %X\n",new_page->frame->kva,new_page->va);
 					continue;
 				}
+				copy_page->cow = true;
+				new_page->cow = true;
+				new_page->frame = copy_page->frame;
+				new_page->frame->cow_count +=1;
+
+				pml4_set_page(thread_current()->pml4,new_page->va,copy_page->frame->kva,false);
+				// printf("copy pml4 set page %d\n",su);
+				pml4_clear_page(src->pml4,copy_page->va);
+				bool success = true;
+				// printf("------------------------------------\n");
+				// printf("copy_apge_va = %X  copy_page_frame_kva = %X\n",copy_page->va,copy_page->frame->kva);
+				// printf("src pml4 = %d child pml4 = %d\n",src->pml4,dst->pml4);
+				success = pml4_set_page(src->pml4,copy_page->va,copy_page->frame->kva,false);
+
+				// if(!success && copy_page->writable == true){
+				// 	pml4_clear_page(thread_current()->pml4, new_page->va);
+				// 	vm_do_claim_page(new_page);
+				// 	memcpy(new_page->frame->kva,copy_page->frame->kva,PGSIZE);
+				// 	pml4_set_page(thread_current()->pml4,new_page->va,new_page->frame->kva,false);
+
+				// 	// printf("su = %d\n",su);
+				// }
+				// printf("------------------------------------\n");
+				// printf("copy_page va = %X copy_page kva =%X \n",copy_page->va,copy_page->frame->kva);
+				// printf("pml4_set_page success = %d\n",success);
+			}
 
 				// struct frame *new_frame = (struct frame *)malloc(sizeof(struct frame));
 				// new_page->frame = new_frame;
 				// new_frame->page = new_page;
 
-				copy_page->cow = true;
-				new_page->cow = true;
 				// new_page->frame->kva = copy_page->frame->kva;
-				new_page->frame = copy_page->frame;
-				copy_page->frame->cow_count +=1;
 				// printf("cow count= %X\n",copy_page->frame->cow_count);
 				// printf("cow frame va = %X\n",copy_page->frame->kva);
 				// printf("cow count %d\n",copy_page->frame->cow_count);
-				pml4_set_page(thread_current()->pml4,new_page->va,copy_page->frame->kva,false);
-				pml4_clear_page(src->pml4,copy_page->va);
-				pml4_set_page(src->pml4,copy_page->va,copy_page->frame->kva,false);
-				
 				// memcpy(new_page->frame->kva,copy_page->frame->kva,PGSIZE);
 				// new_page->frame = copy_page->frame;
 				// printf("origin frame kva = %X , origin page va = %X\n",copy_page->frame->kva,copy_page->va);
 				// printf("copy frame kva = %X, copyed new page va = %X\n",new_page->frame->kva,new_page->va);
-			}
 
 			// if(copy_page->frame != NULL){
 			// 	vm_do_claim_page(new_page);
@@ -604,7 +621,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		}
 		cur = list_next(cur);
 	}
-
+// printf("========copy spt end========\n");
 	return true;
 }
 
@@ -683,4 +700,14 @@ bitmap_lock_aquire(){
 void
 bitmap_lock_release(){
 	lock_release(&bitmap_lock);
+}
+
+void
+memset_lock_aquire(){
+	lock_acquire(&memset_lock);
+}
+
+void
+memset_lock_release(){
+	lock_release(&memset_lock);
 }

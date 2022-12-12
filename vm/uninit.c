@@ -88,7 +88,7 @@ uninit_destroy (struct page *page) {
 		if(page->frame->cow_count > 0){
 			page->frame->cow_count -=1;
 			page->frame = NULL;
-			printf("cow_count > 0 uninit page va = %X\n",page->va);
+			// printf("cow_count > 0 uninit page va = %X\n",page->va);
 			// printf("ninit page type= %d\n",page->uninit.type);
 			pml4_clear_page(thread_current()->pml4,page->va);		
 			// palloc_free_page(page->frame->kva);
