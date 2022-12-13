@@ -393,11 +393,11 @@ remove_elem (struct hash *h, struct hash_elem *e) {
 	list_remove (&e->list_elem);
 }
 
-bool
-frame_page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED) {
-  const struct page *a = hash_entry (a_, struct page, frame_hash_elem);
-  const struct page *b = hash_entry (b_, struct page, frame_hash_elem);
+// bool
+// frame_page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED) {
+//   const struct page *a = hash_entry (a_, struct page, frame_hash_elem);
+//   const struct page *b = hash_entry (b_, struct page, frame_hash_elem);
 
-  return a->va < b->va;
-}
+//   return a->va < b->va;
+// }
 

@@ -60,9 +60,11 @@ struct page {
 	bool writable;
 	bool is_stack;
 	struct list_elem elem;
-	struct hash_elem frame_hash_elem;
+	struct list_elem frame_list_elem;
 	size_t swap_bit_index;
 	bool cow;
+	uint64_t pml4;
+	int tid;
 	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -79,9 +81,8 @@ struct page {
 /* The representation of "frame" */
 struct frame {
 	void *kva;
-	struct hash page_hash;
+	struct list page_list;
 	struct list_elem elem;
-	int cow_count;
 };
 
 /* The function table for page operations.
@@ -113,6 +114,7 @@ struct supplemental_page_table {
 	bool access;
 	uint64_t *pml4;
 	struct list page_list;
+	struct list stack_list;
 	struct list swap_list;
 	uint64_t stack_bottom;
 };

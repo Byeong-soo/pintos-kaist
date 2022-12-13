@@ -468,8 +468,9 @@ void syscall_close(struct intr_frame *f)
 	struct fd *find_fd;
 
 	find_fd = find_matched_fd(fd_value);
+
 	if (find_fd == NULL)
-	{
+	{	
 		syscall_abnormal_exit(-1);
 	}
 
@@ -486,12 +487,12 @@ void * syscall_mmap(struct intr_frame *f){
 	int writable = f->R.rdx;
 	int fd_value = f->R.r10;
 	off_t offset = f->R.r8;
-
+	// printf("enter mmap !\n");
 	struct page * page;
-
+	
 	struct fd *read_fd = find_matched_fd(fd_value);
 	page = spt_find_page(&thread_current()->spt,addr);
-
+	// printf("after page!\n");
 	if( read_fd == NULL || filesize == NULL || addr == NULL || pg_ofs(addr) != 0 
 	|| page != NULL || pg_ofs(offset)){
 		f->R.rax = 0;
@@ -500,18 +501,24 @@ void * syscall_mmap(struct intr_frame *f){
 
 	off_t origin_offset = read_fd->file->pos;
 	// printf("mmap_fd value = %d, ofrigin offset = %d file_length = %X\n",read_fd->value,read_fd->file->pos,file_length(read_fd->file));
-	f->R.rax = do_mmap(addr,filesize,writable,read_fd->file,offset);
+	// printf("before enter mmap !\n");
+	uint64_t return_value;
+	return_value = do_mmap(addr,filesize,writable,read_fd->file,offset);
+	f->R.rax = return_value;
+	// printf("after enter mmap return value %X\n",return_value);
 
 	// file_lock_acquire();
 	// file_seek(read_fd->file,origin_offset);
 	// file_lock_release();
-	return addr;
+	return return_value;
 }
 
 void syscall_munmap(struct intr_frame *f){
 	void * mmap = f->R.rdi;
-
+	
+	// printf("start mm");
 	do_munmap(mmap);
+	// printf("end munmap");
 }
 
 

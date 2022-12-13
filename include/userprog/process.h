@@ -68,7 +68,6 @@ struct load_info
 	bool writable;
 	struct file *file;
 	uint64_t va;
-	int fd;
 };
 
 tid_t process_create_initd (const char *file_name);

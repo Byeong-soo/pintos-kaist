@@ -85,25 +85,21 @@ uninit_destroy (struct page *page) {
 	}
 	
 	if(page->frame != NULL){
- 
-		hash_delete(&frame->page_hash,&page->frame_hash_elem);
-		printf("uninit hash size = %d\n",hash_size(&frame->page_hash));
-		if(hash_size(&frame->page_hash) > 0){
-			pml4_clear_page(thread_current()->pml4,page->va);		
+		// printf("page. va = %X . thread_count =%d\n",page->va,thread_current()->tid);
+		// printf("frame kva = %X\n",page->frame->kva);
+		// printf("uninit hash size = %d\n",hash_size(&frame->page_hash));
+		frame_lock_aquire();
+		list_remove(&page->frame_list_elem);
+		// hash_delete(&frame->page_hash,&page->frame_hash_elem);
+		frame_lock_release();
+		// printf("uninit hash size = %d\n",hash_size(&frame->page_hash));
+		
+		if(!list_empty(&frame->page_list)){
+			pml4_clear_page(page->pml4,page->va);		
 		}else{
 			free(page->frame);
 		}
-		page->frame = NULL;
 
-		// if(page->frame->cow_count > 0){
-		// 	page->frame->cow_count -=1;
-		// 	page->frame = NULL;
-		// 	// printf("cow_count > 0 uninit page va = %X\n",page->va);
-			// printf("ninit page type= %d\n",page->uninit.type);
-			// pml4_clear_page(thread_current()->pml4,page->va);		
-			// palloc_free_page(page->frame->kva);
-			// page->frame = NULL;
-			// free(page->frame);
-		// }
+		page->frame = NULL;
 	}
 }

@@ -53,16 +53,17 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	file_page->aux = load_info;
 
 	return (init ? init (page, load_info) : false);	
+	// return true;	
 }
 
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	
+	// printf("file swap in ! \n");
 	bool has_lock = false;
 	bool success = false;
 	has_lock = check_file_lock_holder();
-	
+
 
 	struct load_info_mmu *lazy_info = (struct load_info_mmu *) page->file.aux;
 	
@@ -75,9 +76,9 @@ file_backed_swap_in (struct page *page, void *kva) {
 		palloc_free_page(page);
 		return false;
 	}
-	if(!has_lock){file_lock_release();}
 	memset(kva+ lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
-
+	if(!has_lock){file_lock_release();}
+	// printf("file swap out ! \n");
 	return true;
 }
 
@@ -204,26 +205,12 @@ do_munmap (void *addr) {
 			struct load_info_mmu * new_aux = (struct load_info_mmu *)page->file.aux;
 			if(new_aux->start_va == addr){
 				if(pml4_is_dirty(t->pml4,page->va) && page->writable){
-					// printf("read_byte = %d\n",new_aux->page_read_bytes);
-					// printf("offset = %d\n",new_aux->offset);
-					// printf("va = %X\n",new_aux->va);
 					
-					// printf("file %X , frame kva %X , read_byte %X , offset %X\n",new_aux->file,page->frame->kva,new_aux->page_read_bytes,new_aux->offset);
-					// printf("file length = %X \n",file_length(new_aux->file));
-					// printf("file = %d, file_length %X\n",file,file_length(file));
-					// printf("file length 124124= %d\n",new_aux->file->deny_write);
-					// hex_dump(page->frame->kva,page->frame->kva,4096,true);
- 
 					file_lock_acquire();
-					// printf("write value %d\n",file_write_at(new_aux->file,page->frame->kva,new_aux->page_read_bytes,new_aux->offset));
 					file_write_at(new_aux->file,page->frame->kva,new_aux->page_read_bytes,new_aux->offset);
 					file_close(new_aux->file);
-					// file_seek(new_aux->file,origin_offset);
-					// file_seek(new_aux->file,new_aux->offset);
-					// printf("write byte !! = %d\n",file_write(new_aux->file,page->frame->kva,20));
 					file_lock_release();
 				}
-				// memset(page->frame->kva,0,PGSIZE);
 				del_elem = list_remove(del_elem);
 				vm_dealloc_page(page);
 				continue;
@@ -235,11 +222,12 @@ do_munmap (void *addr) {
 
 bool
 mmap_lazy_load(struct page *page, void *aux)
-{
+{	
+	// printf("enter mmap_lazy_load!!!!!!\n");
 	bool has_lock = false;
 	bool success = false;
 	has_lock = check_file_lock_holder();
-	
+
 	struct load_info_mmu *lazy_info = (struct load_info_mmu *) aux;
 	
 	if(!has_lock){file_lock_acquire();}
@@ -247,12 +235,13 @@ mmap_lazy_load(struct page *page, void *aux)
  
 	if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
 	{ 
+		// PANIC("sadfasdf");
 		if(!has_lock){file_lock_release();}
 		palloc_free_page(page);
 		return false;
 	}
-	if(!has_lock){file_lock_release();}
 	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
-
+	if(!has_lock){file_lock_release();}
+	// printf("out mmap_lazy_load!!!!!!\n");
 	return true;
 }

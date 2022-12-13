@@ -220,7 +220,7 @@ __do_fork(void *aux)
 		goto error;
 	}
 #endif
-
+		
 	struct file * dup_exec_file = file_duplicate(parent->exec_file);
 	current->exec_file = dup_exec_file;
 	copy_fd_list(parent, current);
@@ -370,8 +370,9 @@ void process_exit(void)
 	struct thread *parent = thread_current()->parent_thread;
 
 
-	if (curr->pml4 > KERN_BASE)
+	if (curr->pml4 != NULL){
 		printf("%s: exit(%d)\n", curr->name, curr->exit_code);
+	}
 
 	process_cleanup();
 	
@@ -741,6 +742,8 @@ lazy_load_segment(struct page *page, void *aux)
 	if(!has_lock){file_lock_acquire();}
 	file_seek(lazy_info->file,lazy_info->offset);
 	if(!has_lock){file_lock_release();}
+	page->pml4 = thread_current()->pml4;
+
 	// file_lock_release();
 	// printf("enter lazy_load_segment\n");
 	// printf("=================load=================\n");
@@ -835,6 +838,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		lazy_info->page_read_bytes = page_read_bytes;
 		lazy_info->page_zero_bytes = page_zero_bytes;
 		lazy_info->offset =	 offset;
+
 	
 		// printf("offset !!!!! =%d\n",offset);
 		thread_current()->exec_file = file;
