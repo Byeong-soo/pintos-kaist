@@ -203,6 +203,8 @@ vm_get_victim (void) {
 	frame_lock_aquire();
 	// victim_elem = list_begin(&frame_list);
 
+	
+
 
 	while (1)
 	{	
@@ -213,17 +215,20 @@ vm_get_victim (void) {
 		bool check = true;
 
 		victim_elem = list_pop_front(&frame_list);
+
 		victim = list_entry(victim_elem,struct frame,elem);
 
 		if(list_empty(&victim->page_list)){
 			list_push_back(&frame_list,&victim->elem);
 			continue;
 		}
-		
+
+
 		struct list_elem * curr = list_begin(&victim->page_list);	
 		// printf("page count !! =%d\n",list_size(&victim->page_list));
 		// printf("first bool = %d\n",check);
-		struct page *victim_page = list_entry (curr, struct page, frame_list_elem);
+		struct page *victim_page = list_entry (curr, struct page, frame_list_elem);		
+
 		if(!victim_page->writable || victim_page->frame->kva == NULL || victim_page->uninit.type == VM_STACK){
 			check = false;
 		}
@@ -365,8 +370,6 @@ vm_handle_wp (struct page *page) {
 		// struct page *delete2 = hash_entry (delete, struct page, frame_hash_elem);
 		// printf("delete page va = %X, left page kva = %X left page cow = %d  left_pml4 = %d tid = %d\n",delete2->va,delete2->frame->kva,delete2->cow,delete2->pml4,delete2->tid);
 
-		// printf("page va = %X,  page kva = %X  page cow = %d  _pml4 = %d tid = %d\n",page->va,page->frame->kva,page->cow,page->pml4,page->tid);
-		// ASSERT(delete2 == page);
 
 		pml4_clear_page(thread_current()->pml4,page->va);
 

@@ -146,13 +146,7 @@ page_fault (struct intr_frame *f) {
 	
 #ifdef VM
 	/* For project 3 and later. */
-	// printf("enter page_fault\n");
-	// printf("before handle check addr = %X\n",fault_addr);
-	// printf("before handle check addr round down = %X\n",pg_round_down(fault_addr));
-	// printf("thread_current = %d\n",thread_current()->tid);
-	// printf("thread rsp = %X\n",f->rsp);
-	// printf("buffer %X\n",f->rsp);
-	// printf("stack bottom = %X\n",thread_current()->spt.stack_bottom);
+
 	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
 		return;
 #endif
