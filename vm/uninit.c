@@ -10,6 +10,7 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "threads/mmu.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -21,6 +22,14 @@ static const struct page_operations uninit_ops = {
 	.destroy = uninit_destroy,
 	.type = VM_UNINIT,
 };
+
+static const struct page_operations stack_ops = {
+	.swap_in = uninit_initialize,
+	.swap_out = NULL,
+	.destroy = uninit_destroy,
+	.type = VM_STACK,
+};
+
 
 //! DO NOT MODIFY this function
 void
@@ -50,7 +59,6 @@ uninit_initialize (struct page *page, void *kva) {
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = page->uninit.aux;
-	page->vm_type = VM_UNINIT;
 	// TODO: You may need to fix this function.
 	if(uninit->page_initializer == NULL || uninit->init == NULL){
 		return true;
@@ -69,4 +77,29 @@ uninit_destroy (struct page *page) {
 	struct uninit_page *uninit UNUSED = &page->uninit;
 	// TODO: Fill this function.
 	// TODO: If you don't have anything to do, just return.
+
+	struct frame * frame = page->frame;
+
+	if(page->uninit.aux != NULL){
+		free(page->anon.aux);
+	}
+	
+	if(page->frame != NULL){
+		// printf("page. va = %X . thread_count =%d\n",page->va,thread_current()->tid);
+		// printf("frame kva = %X\n",page->frame->kva);
+		// printf("uninit hash size = %d\n",hash_size(&frame->page_hash));
+		frame_lock_aquire();
+		list_remove(&page->frame_list_elem);
+		// hash_delete(&frame->page_hash,&page->frame_hash_elem);
+		frame_lock_release();
+		// printf("uninit hash size = %d\n",hash_size(&frame->page_hash));
+		
+		if(!list_empty(&frame->page_list)){
+			pml4_clear_page(page->pml4,page->va);		
+		}else{
+			free(page->frame);
+		}
+
+		page->frame = NULL;
+	}
 }

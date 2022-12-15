@@ -96,15 +96,17 @@ initd(void *f_name)
 tid_t process_fork(const char *name, struct intr_frame *if_)
 {
 	// 	/* Clone current thread to new thread.*/
+	// printf("in fork\n");
 	struct fork_info *fork_info = (struct fork_info *)malloc(sizeof(struct fork_info));
 	fork_info->parent_t = thread_current();
 	fork_info->if_ = if_;
 
 	tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, fork_info);
+	// printf("parent sleep!!!!\n\n");
 	process_fork_sema_down();
 
 	if (!thread_current()->make_child_success)
-	{
+	{	
 		return -1;
 	}
 	return pid;
@@ -218,6 +220,9 @@ __do_fork(void *aux)
 		goto error;
 	}
 #endif
+		
+	struct file * dup_exec_file = file_duplicate(parent->exec_file);
+	current->exec_file = dup_exec_file;
 	copy_fd_list(parent, current);
 	process_init();
 	/* Finally, switch to the newly created process. */
@@ -227,12 +232,12 @@ __do_fork(void *aux)
 		parent->make_child_success = true;
 		free(fork_info);
 		if_.R.rax = 0;
+		// printf("parent_wake_Up!\n\n");
 		process_fork_sema_up();
 		thread_yield();
 		do_iret(&if_);
 	}
 error:
-	printf("in error\n");
 	parent->make_child_success = false;
 	free(fork_info);
 	thread_current()->exit_code = -1;
@@ -364,19 +369,17 @@ void process_exit(void)
 	struct thread *curr = thread_current();
 	struct thread *parent = thread_current()->parent_thread;
 
+
+	if (curr->pml4 != NULL){
+		printf("%s: exit(%d)\n", curr->name, curr->exit_code);
+	}
+
+	process_cleanup();
+	
 	update_child_exit_code();
 	clear_children_list();
 	clear_fd_list();
 
-	if (curr->pml4 > KERN_BASE)
-		printf("%s: exit(%d)\n", curr->name, curr->exit_code);
-
-	if (thread_current()->exec_file != NULL)
-	{
-		file_close(thread_current()->exec_file);
-		thread_current()->exec_file = NULL;
-	}
-	process_cleanup();
 	sema_up(&parent->wait_sema);
 }
 
@@ -389,6 +392,13 @@ process_cleanup(void)
 #ifdef VM
 	supplemental_page_table_kill(&curr->spt);
 #endif
+	
+
+	if (thread_current()->exec_file != NULL)
+	{
+		file_close(thread_current()->exec_file);
+		thread_current()->exec_file = NULL;
+	}
 
 	uint64_t *pml4;
 	/* Destroy the current process's page directory and switch back
@@ -439,6 +449,7 @@ load(const char *file_name, struct intr_frame *if_)
 	/* Allocate and activate page directory. */
 	// printf("!!!!!!!!!!!!!!before pml4_create\n");
 	t->pml4 = pml4_create();
+	t->spt.pml4 = t->pml4;
 	if (t->pml4 == NULL){
 		// printf("!!!!!!!!!!!!!!pml4 null\n");
 		goto done;
@@ -551,7 +562,6 @@ load(const char *file_name, struct intr_frame *if_)
 	// printf("rip setting end@@@@@@@@@@@\n");
 	// printf("rip  = %x\n",if_->rip);
 	success = true;
-	thread_current()->exec_file = file;
 	file_deny_write(file);
 done:
 	/* We arrive here whether the load is successful or not. */
@@ -722,8 +732,9 @@ lazy_load_segment(struct page *page, void *aux)
 	bool has_lock = false;
 	bool success = false;
 	has_lock = check_file_lock_holder();
+	
 	// size_t *buf = (size_t*)aux;
-	struct load_lazy_info *lazy_info = (struct load_lazy_info *) aux;
+	struct load_info *lazy_info = (struct load_info *) aux;
 	// size_t page_read_bytes = *(buf);
 	// size_t page_zero_bytes = *(buf+1);
 	// size_t file = *(buf+2);	
@@ -731,6 +742,8 @@ lazy_load_segment(struct page *page, void *aux)
 	if(!has_lock){file_lock_acquire();}
 	file_seek(lazy_info->file,lazy_info->offset);
 	if(!has_lock){file_lock_release();}
+	page->pml4 = thread_current()->pml4;
+
 	// file_lock_release();
 	// printf("enter lazy_load_segment\n");
 	// printf("=================load=================\n");
@@ -742,9 +755,10 @@ lazy_load_segment(struct page *page, void *aux)
 	// printf("======================================\n");
 	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
 	// printf("page va = %X\n",page->va);
-	// printf("%d\n",page->frame->kva);
+	// printf("lazy load %d\n",page->frame->kva);
 	// printf("%d\n",page->frame->kva + lazy_info->page_read_bytes);
 	if(!has_lock){file_lock_acquire();}
+	// if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
 	if (file_read(lazy_info->file, page->frame->kva, lazy_info->page_read_bytes) != (int)lazy_info->page_read_bytes)
 	{ 
 		if(!has_lock){file_lock_release();}
@@ -752,23 +766,25 @@ lazy_load_segment(struct page *page, void *aux)
 		return false;
 	}
 	if(!has_lock){file_lock_release();}
-
 	memset(page->frame->kva + lazy_info->page_read_bytes, 0, lazy_info->page_zero_bytes);
+	
+	
+	// if(lazy_info->writable == 0){
 
-	if(lazy_info->writable == 0){
-		success = pml4_set_page(thread_current()->pml4,page->va,page->frame->kva,false);
-		if(!success){
-			return false;
-		}
-	}
+	// if(page->writable == 0){
+	// 	success = pml4_set_page(thread_current()->pml4,page->va,page->frame->kva,false);
+	// 	if(!success){
+	// 		return false;
+	// 	}
+	// }
 
 	// printf("page->frame->kva = %X\n",page->frame->kva);
 	// printf("page->va = %X\n",page->va);
-	// printf("writable = %X\n",page->writeable);
+	// printf("writable = %X\n",page->writable);
 	// printf("file offffffset %d\n",lazy_info->file->pos);
 	// hex_dump(page->frame->kva,page->frame->kva,4096,true);
 	//! free!!
-	// free(lazy_info);
+	// free(lazy_info)
 	return true;
 }
 
@@ -814,7 +830,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		// printf("page_read_bytes = %d\n",page_read_bytes);
 		// printf("page_zero_bytes = %d\n",page_zero_bytes);
 		//! free!!
-		struct load_lazy_info * lazy_info = (struct load_lazy_info*)malloc(sizeof(struct load_lazy_info));
+		struct load_info * lazy_info = (struct load_info*)malloc(sizeof(struct load_info));
 
 		lazy_info->page_read_bytes = 0;
 		lazy_info->page_zero_bytes = 0;
@@ -822,10 +838,11 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		lazy_info->page_read_bytes = page_read_bytes;
 		lazy_info->page_zero_bytes = page_zero_bytes;
 		lazy_info->offset =	 offset;
-		lazy_info->writable = writable;
+
 	
 		// printf("offset !!!!! =%d\n",offset);
-		lazy_info->file = file;
+		thread_current()->exec_file = file;
+		lazy_info->file = thread_current()->exec_file;
 		// printf("=================save=================\n");
 		// printf("page_zero =  %d\n",lazy_info->page_zero_bytes);
 		// printf("page_read =  %d\n",lazy_info->page_read_bytes);
@@ -879,6 +896,8 @@ setup_stack(struct intr_frame *if_)
 
 	struct thread *t = thread_current();
 	t->spt.stack_bottom = stack_bottom_p;
+
+	vm_alloc_page(VM_STACK,stack_bottom_p,true);
 	vm_claim_page(stack_bottom_p);
 
 	if_->rsp = USER_STACK;
@@ -894,7 +913,7 @@ void copy_fd_list(struct thread *parent, struct thread *child)
 
 	p_fd_list = &parent->fd_list;
 	c_fd_list = &child->fd_list;
-
+	child->fd_count = parent->fd_count;
 	if (list_empty(p_fd_list))
 	{
 		return;
@@ -912,7 +931,6 @@ void copy_fd_list(struct thread *parent, struct thread *child)
 			struct fd *new_fd = (struct fd *)malloc(sizeof(struct fd));
 			new_fd->file = copy_file;
 			new_fd->value = find_fd->value;
-			child->fd_count = parent->fd_count;
 			list_push_front(c_fd_list, &new_fd->elem);
 		}
 		cur = list_next(cur);

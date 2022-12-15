@@ -2,6 +2,7 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
+#include "lib/kernel/hash.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -14,6 +15,7 @@ enum vm_type {
 	VM_PAGE_CACHE = 3,
 
 	/* Bit flags to store state */
+	VM_STACK = 4,
 
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
@@ -35,6 +37,7 @@ enum page_position {
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
+#include "lib/kernel/list.h"
 #ifdef EFILESYS
 #include "filesys/page_cache.h"
 #endif
@@ -54,8 +57,14 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
-	bool writeable;
-	enum vm_type vm_type;
+	bool writable;
+	bool is_stack;
+	struct list_elem elem;
+	struct list_elem frame_list_elem;
+	size_t swap_bit_index;
+	bool cow;
+	uint64_t pml4;
+	int tid;
 	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -72,7 +81,8 @@ struct page {
 /* The representation of "frame" */
 struct frame {
 	void *kva;
-	struct page *page;
+	struct list page_list;
+	struct list_elem elem;
 };
 
 /* The function table for page operations.
@@ -102,7 +112,10 @@ struct supplemental_page_table {
 	// 트랩이 발생한 시점에 물리페이지를 0으로 채우고 프로세스의 주소 공간으로 매핑하는 등의 필요작업을 하게한다.
 	// 해당 페이지를 전혀 접근하지 않는다면 이 모든 작업을 피할 수 있으며, 이것이 장점
 	bool access;
+	uint64_t *pml4;
 	struct list page_list;
+	struct list stack_list;
+	struct list swap_list;
 	uint64_t stack_bottom;
 };
 
@@ -119,8 +132,8 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 void supplemental_page_table_kill (struct supplemental_page_table *spt);
 struct page *spt_find_page (struct supplemental_page_table *spt,
 		void *va);
-bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
-void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
+bool spt_insert_page (struct supplemental_page_table *spt, struct page *page, struct list * list);
+void spt_remove_page (struct supplemental_page_table *spt, struct page *page, struct list * list);
 
 void vm_init (void);
 bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
@@ -134,4 +147,11 @@ void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
 
+size_t find_empty_disk_sector();
+void restore_bitmap(size_t index);
+
+void bitmap_lock_aquire();
+void bitmap_lock_release();
+void frame_lock_aquire();
+void frame_lock_release();
 #endif  /* VM_VM_H */
